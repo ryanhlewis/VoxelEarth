@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+ <head>
+   <title>Google 3D tiles example</title>
+   <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+   <style>
+     body { margin: 0; padding: 0;}
+     #map { position: absolute; top: 0;bottom: 0;width: 100%;}
+     #credits { position: absolute; bottom: 0; right: 0; padding: 2px; font-size: 10px; color: 'white';}
+   </style>
+ </head>
+
+ <body>
+   <div id="map"></div>
+   <div id="credits"></div>
+   <script>
+     const GOOGLE_API_KEY = 'AIzaSyCpvQymc5wjSYIsxy3RV1widM3p3h78CAk';
+     const TILESET_URL = `https://tile.googleapis.com/v1/3dtiles/root.json`;
+     const BUILDINGS_URL = 'https://raw.githubusercontent.com/visgl/deck.gl-data/master/examples/google-3d-tiles/buildings.geojson'
+     const creditsElement = document.getElementById('credits');
+     const deckgl = new deck.DeckGL({
+       container: 'map',
+       initialViewState: {
+         latitude: 50.0890,
+         longitude: 14.4196,
+         zoom: 16,
+         bearing: 90,
+         pitch: 60,
+         height: 200
+       },
+       controller: true,
+       layers: [
+         new deck.Tile3DLayer({
+           id: 'google-3d-tiles',
+           data: TILESET_URL,
+           loadOptions: {
+            fetch: {
+              headers: {
+                'X-GOOG-API-KEY': GOOGLE_API_KEY
+              }
+            }
+          },
+          onTilesetLoad: tileset3d => {
+             tileset3d.options.onTraversalComplete = selectedTiles => {
+               const credits = new Set();
+               selectedTiles.forEach(tile => {
+                 const {copyright} = tile.content.gltf.asset;
+                 copyright.split(';').forEach(credits.add, credits);
+                 creditsElement.innerHTML = [...credits].join('; ');
+               });
+               return selectedTiles;
+             }
+           },
+           operation: 'terrain+draw'
+         }),
+         new deck.GeoJsonLayer({
+           id: 'buildings',
+           // This dataset is created by CARTO, using other Open Datasets available. More info at: https://3dtiles.carto.com/#about.
+           data: 'https://raw.githubusercontent.com/visgl/deck.gl-data/master/examples/google-3d-tiles/buildings.geojson',
+           stroked: false,
+           filled: true,
+           getFillColor: ({properties}) => {
+             const {tpp} = properties;
+             // quantiles break
+             if (tpp < 0.6249)
+               return [254, 246, 181]
+             else if (tpp < 0.6780)
+               return [255, 194, 133]
+             else if (tpp < 0.8594)
+               return [250, 138, 118]
+             return [225, 83, 131]
+           },
+           opacity: 0.2,
+           extensions: [new deck._TerrainExtension()]
+         })
+       ]
+     });
+   </script>
+ </body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "carto-bq-google-maps",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "start": "vite --open",
+    "build": "vite build ",
+    "build-preview": "vite build --mode preview",
+    "link-deck": "rm -rf node_modules/.vite && yarn link @deck.gl/core @deck.gl/layers @deck.gl/geo-layers @deck.gl/carto @deck.gl/extensions",
+    "unlink-deck": "yarn unlink @deck.gl/core @deck.gl/layers @deck.gl/geo-layers @deck.gl/carto @deck.gl/extensions"
+  },
+  "dependencies": {
+    "@deck.gl/aggregation-layers": "^8.9.14",
+    "@deck.gl/carto": "^8.9.14",
+    "@deck.gl/core": "^8.9.14",
+    "@deck.gl/extensions": "^8.9.14",
+    "@deck.gl/geo-layers": "^8.9.14",
+    "@deck.gl/layers": "^8.9.14",
+    "@deck.gl/mesh-layers": "^8.9.14",
+    "@deck.gl/react": "^8.9.14",
+    "@material-ui/core": "^4.12.3",
+    "@tweenjs/tween.js": "^18",
+    "d3-color": "^2.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "vite": "^4.0.0",
+    "vite-plugin-static-copy": "^0.14.0",
+    "vite-plugin-svgr": "^2.4.0",
+    "zlib": "^1.0.5"
+  }
+}
