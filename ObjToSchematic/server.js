@@ -106,7 +106,7 @@ if (!fs.existsSync(gpuCacheDir)) {
 var toggleMCG = true;
 var count = 3;
 
-var forceCPU = false;
+var forceCPU = true;
 var gridsize = 32;
 
 
@@ -298,8 +298,8 @@ async function compressAndCopyAttributes(buffer, originalBuffer) {
     const targetGltfResult = await glbToGltf(buffer);
     const originalGltfResult = await glbToGltf(originalBuffer);
 
-    const originalNode = originalGltfResult.gltf.nodes[0];
-    const targetNode = targetGltfResult.gltf.nodes[0];
+    let originalNode = originalGltfResult.gltf.nodes[0];
+    let targetNode = targetGltfResult.gltf.nodes[0];
     if(forceCPU) {
         targetNode = targetGltfResult.gltf.nodes[1]; // use 1 for CPU
     } 

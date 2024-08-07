@@ -7,15 +7,66 @@ Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel rep
 ### Features
 - **High-Resolution Conversion**: Converts Google’s 3D Tiles into Minecraft blocks, creating detailed voxel representations of real-world locations.
 - **Multi-Resolution Viewing**: Users can adjust the voxel count to view landmarks at different levels of detail.
-- **Interactive Visualization**: Compatible with Minecraft and VR, allowing users to explore and interact with voxelized environments.
+- **Interactive Visualization**: Compatible with Minecraft and online maps, allowing users to explore and interact with voxelized environments.
 - **Scalability**: Efficiently handles large datasets, reducing the time and effort needed to create detailed virtual worlds.
 
 ### Usage
+
+#### Map Viewer
+
+Please install NodeJS and Yarn before running the pipeline.
+NodeJS can be downloaded from [here](https://nodejs.org/en/download/). After installing, run the following command to install Yarn.
+```bash
+npm install --global yarn
+```
+
 To begin, clone the repository and follow the steps below to set up the pipeline. Voxel Earth supports both CPU and GPU voxelization methods, each with its own requirements.
 ```bash
-git clone https://github.com/ryanhlewis/voxelearth.git`
+git clone https://github.com/ryanhlewis/voxelearth.git
 cd voxelearth
 ```
+To see your browser render Voxel Earth, just run the following command:
+```bash
+cd ObjToSchematic
+npm install
+node server.js
+   ```
+You should see several workers (voxelizers) start up. This is the proxy server for tile requests. Now, we'll set up the visualizer. In another terminal, run the following commands:
+```bash
+cd tiles3d-demo
+yarn install
+yarn start
+```
+Now, you'll see the map load in- but every GLB model is voxelized! Adjust grid size or GPU/CPU in [server.js](ObjToSchematic/server.js). Note CPU works on all platforms, GPU only on NVIDIA + Linux (or WSL2), as we have only compiled the Linux binary.
+
+
+#### Single Files, Custom Locations
+There are also other demos available, such as custom GPU or CPU voxelization on single files or even custom locations. We've made a script to help you get started. 
+```bash
+cd ObjToSchematic
+node voxelize.js myfile.glb cpu # For CPU voxelization
+node voxelize.js myfile.glb # For GPU voxelization
+```
+This will save to myfile_voxel.glb.
+
+
+#### Minecraft
+We also show how our custom Minecraft plugin can load in the world on the fly. 
+
+
+### Roadmap
+
+Our overall goal is to make an interactive Earth accessible in Minecraft. Currently, we are working on the following features:
+
+[ ✔ ] **GPU Voxelization**: Optimize the voxelization process using CUDA shaders for on-demand voxelization (credit to Forceflow's implementation)
+
+[ㅤ] **Texture Fixes**: Our current GPU voxelization gets textures mostly accurate, but is somewhat spotty with white/black pixels and needs to be revised.
+
+[ㅤ] **Rotation Fixes**: Convert 3D Tiles from ECEF to ENU to properly orient the object before voxelizing and have "flat voxels" instead of diagonal (credit to Google Earth team for this advice).
+
+[ㅤ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
+
+### Developing
 **CPU Voxelization:**\
 We'll focus on CPU voxelization for now, as it's the most straightforward method to get started.
 1. **Install Dependencies**: First, set up ObjToSchematic by performing the following steps.
@@ -61,4 +112,6 @@ Contributions to Voxel Earth are welcome! Please fork the repository and submit 
 Voxel Earth is licensed under the MIT License. See the LICENSE file for more details.
 
 ### Acknowledgements
-This project stands on the shoulders of giants. Special thanks to Lucas Dower, ForceFlow, and the CartoDB team for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.
+We use Google Photorealistic 3D Tiles under fair use and load data on-demand without downloading or caching outside of development.
+
+Special thanks to Lucas Dower, ForceFlow, Cesium, Google, and the CartoDB team for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.

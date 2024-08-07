@@ -4,7 +4,7 @@ exports.convertVoxelMeshToGLB = void 0;
 var THREE = require("three");
 const gltf = require("gltf-js-utils");
 const { exportGLTF, exportGLB } = require("gltf-js-utils");
-const { glTFAssetFromTHREE } = require("gltf-js-utils-three");
+const { glTFAssetFromTHREE } = require("./gltf-js-utils-three-local");
 // import * as THREE from 'three';
 //import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
