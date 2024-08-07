@@ -10,7 +10,7 @@ var Axes;
     Axes[Axes["x"] = 0] = "x";
     Axes[Axes["y"] = 1] = "y";
     Axes[Axes["z"] = 2] = "z";
-})(Axes = exports.Axes || (exports.Axes = {}));
+})(Axes || (exports.Axes = Axes = {}));
 /* eslint-enable */
 function axesToDirection(axis) {
     if (axis === Axes.x) {
@@ -51,4 +51,3 @@ function rayIntersectTriangle(ray, v0, v1, v2) {
     }
 }
 exports.rayIntersectTriangle = rayIntersectTriangle;
-//# sourceMappingURL=ray.js.map

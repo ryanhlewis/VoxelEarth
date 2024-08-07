@@ -18,7 +18,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RayVoxeliser = void 0;
 var bounds_1 = require("../bounds");
 var linear_allocator_1 = require("../linear_allocator");
-var progress_1 = require("../progress");
+// var progress_1 = require("../progress");
 var ray_1 = require("../ray");
 var error_util_1 = require("../util/error_util");
 var vector_1 = require("../vector");
@@ -64,14 +64,14 @@ var RayVoxeliser = /** @class */ (function (_super) {
             return vertex.copy().mulScalar(scale).add(offset);
         });
         var numTris = mesh.getTriangleCount();
-        var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
+        // var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
         for (var triIndex = 0; triIndex < numTris; ++triIndex) {
-            progress_1.ProgressManager.Get.progress(taskHandle, triIndex / numTris);
+            // progress_1.ProgressManager.Get.progress(taskHandle, triIndex / numTris);
             var uvTriangle = mesh.getUVTriangle(triIndex);
             var material = mesh.getMaterialByTriangle(triIndex);
             this._voxeliseTri(uvTriangle, material);
         }
-        progress_1.ProgressManager.Get.end(taskHandle);
+        // progress_1.ProgressManager.Get.end(taskHandle);
         mesh.clearTransform();
         return this._voxelMesh;
     };
@@ -159,4 +159,3 @@ var RayVoxeliser = /** @class */ (function (_super) {
     return RayVoxeliser;
 }(base_voxeliser_1.IVoxeliser));
 exports.RayVoxeliser = RayVoxeliser;
-//# sourceMappingURL=ray-voxeliser.js.map

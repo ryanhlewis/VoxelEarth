@@ -203,4 +203,3 @@ var fastCrossZAxis = function (vec) {
     return new Vector3(-vec.y, vec.x, 0.0);
 };
 exports.fastCrossZAxis = fastCrossZAxis;
-//# sourceMappingURL=vector.js.map

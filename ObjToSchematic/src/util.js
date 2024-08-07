@@ -15,7 +15,7 @@ var AppUtil;
          * For example `namespaceBlock('stone')` returns `'minecraft:stone'`
          */
         function namespaceBlock(blockName) {
-            // https://minecraft.wiki/w/Resource_location#Namespaces
+            // https://minecraft.fandom.com/wiki/Resource_location#Namespaces
             return isNamespacedBlock(blockName) ? blockName : ('minecraft:' + blockName);
         }
         Text.namespaceBlock = namespaceBlock;
@@ -42,7 +42,7 @@ var AppUtil;
         }
         Array.repeatedFill = repeatedFill;
     })(Array = AppUtil.Array || (AppUtil.Array = {}));
-})(AppUtil = exports.AppUtil || (exports.AppUtil = {}));
+})(AppUtil || (exports.AppUtil = AppUtil = {}));
 /* eslint-disable */
 var EAction;
 (function (EAction) {
@@ -53,7 +53,7 @@ var EAction;
     EAction[EAction["Assign"] = 4] = "Assign";
     EAction[EAction["Export"] = 5] = "Export";
     EAction[EAction["MAX"] = 6] = "MAX";
-})(EAction = exports.EAction || (exports.EAction = {}));
+})(EAction || (exports.EAction = EAction = {}));
 var UV = /** @class */ (function () {
     function UV(u, v) {
         this.u = u;
@@ -70,9 +70,8 @@ var ColourSpace;
 (function (ColourSpace) {
     ColourSpace[ColourSpace["RGB"] = 0] = "RGB";
     ColourSpace[ColourSpace["LAB"] = 1] = "LAB";
-})(ColourSpace = exports.ColourSpace || (exports.ColourSpace = {}));
+})(ColourSpace || (exports.ColourSpace = ColourSpace = {}));
 function getRandomID() {
     return (Math.random() + 1).toString(36).substring(7);
 }
 exports.getRandomID = getRandomID;
-//# sourceMappingURL=util.js.map

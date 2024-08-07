@@ -41,4 +41,3 @@ var LinearAllocator = /** @class */ (function () {
     return LinearAllocator;
 }());
 exports.LinearAllocator = LinearAllocator;
-//# sourceMappingURL=linear_allocator.js.map

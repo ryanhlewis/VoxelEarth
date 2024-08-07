@@ -176,7 +176,7 @@ var RGBAUtil;
         return hash;
     }
     RGBAUtil.hash255 = hash255;
-})(RGBAUtil = exports.RGBAUtil || (exports.RGBAUtil = {}));
+})(RGBAUtil || (exports.RGBAUtil = RGBAUtil = {}));
 var RGBAColours;
 (function (RGBAColours) {
     RGBAColours.RED = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
@@ -187,5 +187,4 @@ var RGBAColours;
     RGBAColours.MAGENTA = { r: 1.0, g: 0.0, b: 1.0, a: 1.0 };
     RGBAColours.WHITE = { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
     RGBAColours.BLACK = { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-})(RGBAColours = exports.RGBAColours || (exports.RGBAColours = {}));
-//# sourceMappingURL=colour.js.map
+})(RGBAColours || (exports.RGBAColours = RGBAColours = {}));

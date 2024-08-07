@@ -26,4 +26,3 @@ var VoxeliserFactory = /** @class */ (function () {
     return VoxeliserFactory;
 }());
 exports.VoxeliserFactory = VoxeliserFactory;
-//# sourceMappingURL=voxelisers.js.map

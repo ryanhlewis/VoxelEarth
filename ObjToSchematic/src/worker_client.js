@@ -1,4 +1,5 @@
 "use strict";
+
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -35,22 +36,9 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkerClient = void 0;
-var path_1 = __importDefault(require("path"));
-var atlas_1 = require("./atlas");
-var block_mesh_1 = require("./block_mesh");
-var buffer_1 = require("./buffer");
-var event_1 = require("./event");
-var exporters_1 = require("./exporters/exporters");
-var importers_1 = require("./importers/importers");
-var localiser_1 = require("./localiser");
-var progress_1 = require("./progress");
-var error_util_1 = require("./util/error_util");
-var voxelisers_1 = require("./voxelisers/voxelisers");
+
 var WorkerClient = /** @class */ (function () {
     function WorkerClient() {
         this._voxelMeshChunkIndex = 0;
@@ -63,11 +51,10 @@ var WorkerClient = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    /**
-     * This function should only be called if the client is using the worker.
-     */
+
     WorkerClient.prototype.init = function (params) {
-        event_1.EventManager.Get.add(event_1.EAppEvent.onTaskStart, function (e) {
+        const { EventManager, EAppEvent } = require("./event");
+        EventManager.Get.add(EAppEvent.onTaskStart, function (e) {
             var message = {
                 action: 'Progress',
                 payload: {
@@ -77,7 +64,7 @@ var WorkerClient = /** @class */ (function () {
             };
             postMessage(message);
         });
-        event_1.EventManager.Get.add(event_1.EAppEvent.onTaskProgress, function (e) {
+        EventManager.Get.add(EAppEvent.onTaskProgress, function (e) {
             var message = {
                 action: 'Progress',
                 payload: {
@@ -88,7 +75,7 @@ var WorkerClient = /** @class */ (function () {
             };
             postMessage(message);
         });
-        event_1.EventManager.Get.add(event_1.EAppEvent.onTaskEnd, function (e) {
+        EventManager.Get.add(EAppEvent.onTaskEnd, function (e) {
             var message = {
                 action: 'Progress',
                 payload: {
@@ -99,14 +86,17 @@ var WorkerClient = /** @class */ (function () {
             postMessage(message);
         });
         // TODO: Async: should await
-        localiser_1.Localiser.Get.init();
+        const { Localiser } = require("./localiser");
+        Localiser.Get.init();
         return {};
     };
+
     WorkerClient.prototype.settings = function (params) {
         return __awaiter(this, void 0, void 0, function () {
+            const { Localiser } = require("./localiser");
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, localiser_1.Localiser.Get.changeLanguage(params.language)];
+                    case 0: return [4 /*yield*/, Localiser.Get.changeLanguage(params.language)];
                     case 1:
                         _a.sent();
                         return [2 /*return*/, {}];
@@ -114,18 +104,45 @@ var WorkerClient = /** @class */ (function () {
             });
         });
     };
+
     WorkerClient.prototype.import = function (params) {
         return __awaiter(this, void 0, void 0, function () {
-            var parsed, importer, _a;
-            return __generator(this, function (_b) {
-                switch (_b.label) {
+            const path = require("path");
+            const { ImporterFactor } = require("./importers/importers");
+            const fs = require('fs');
+            return __generator(this, function (_a) {
+                var parsed, importer, _b;
+                switch (_a.label) {
                     case 0:
-                        parsed = path_1.default.parse(params.file.name);
-                        importer = importers_1.ImporterFactor.GetImporter(parsed.ext === '.obj' ? 'obj' : 'gltf');
-                        _a = this;
-                        return [4 /*yield*/, importer.import(params.file)];
+                        console.log('importing');
+                        parsed = path.parse(params.file);
+                        importer = ImporterFactor.GetImporter(parsed.ext === '.obj' ? 'obj' : 'gltf');
+                        function readBinaryFileSync(filePath) {
+                            try {
+                                console.log("Attempting synchronous read for:", filePath);
+                                const data = fs.readFileSync(filePath);
+                                console.log("Synchronous read completed for:", filePath);
+                                return data;
+                            } catch (error) {
+                                console.error("Error during synchronous file read:", error.message);
+                            }
+                        }
+                        if (parsed.ext === '.glb') {
+                            console.log('gltf');
+                            try {
+                                const glbBuffer = readBinaryFileSync(params.file);
+                                console.log("File parsed successfully. Importing...");
+                                return [4, importer.import(glbBuffer)];
+                            } catch (error) {
+                                console.error("Error in GLB processing:", error.message);
+                            }    
+                        } else {
+                            return [4, importer.import(params.file)];
+                        }
                     case 1:
-                        _a._loadedMesh = _b.sent();
+                        _b = this;
+                        console.log('imported');
+                        _b._loadedMesh = _a.sent();
                         this._loadedMesh.processMesh(params.rotation.y, params.rotation.x, params.rotation.z);
                         return [2 /*return*/, {
                                 triangleCount: this._loadedMesh.getTriangleCount(),
@@ -136,82 +153,88 @@ var WorkerClient = /** @class */ (function () {
             });
         });
     };
+
     WorkerClient.prototype.setMaterials = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedMesh !== undefined);
+        const { ASSERT } = require("./util/error_util");
+        ASSERT(this._loadedMesh !== undefined);
         this._loadedMesh.setMaterials(params.materials);
         return {
             materials: this._loadedMesh.getMaterials(),
-            materialsChanged: Array.from(params.materials.keys()), // TODO: Change to actual materials changed
+            materialsChanged: Array.from(params.materials.keys()),
         };
     };
+
     WorkerClient.prototype.renderMesh = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedMesh !== undefined);
+        const { ASSERT } = require("./util/error_util");
+        const { BufferGenerator } = require("./buffer");
+        ASSERT(this._loadedMesh !== undefined);
         return {
-            buffers: buffer_1.BufferGenerator.fromMesh(this._loadedMesh),
+            buffers: BufferGenerator.fromMesh(this._loadedMesh),
             dimensions: this._loadedMesh.getBounds().getDimensions(),
         };
     };
+
     WorkerClient.prototype.voxelise = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedMesh !== undefined);
-        var voxeliser = voxelisers_1.VoxeliserFactory.GetVoxeliser(params.voxeliser);
+        const { ASSERT } = require("./util/error_util");
+        const { VoxeliserFactory } = require("./voxelisers/voxelisers");
+        ASSERT(this._loadedMesh !== undefined);
+        var voxeliser = VoxeliserFactory.GetVoxeliser(params.voxeliser);
         this._loadedVoxelMesh = voxeliser.voxelise(this._loadedMesh, params);
         this._loadedVoxelMesh.calculateNeighbours();
         this._voxelMeshChunkIndex = 0;
-        return {};
+        return {
+            voxels: this._loadedVoxelMesh,
+        };
     };
+
     WorkerClient.prototype.renderChunkedVoxelMesh = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedVoxelMesh !== undefined);
+        const { ASSERT } = require("./util/error_util");
+        const { ProgressManager } = require("./progress");
+        const { convertVoxelMeshToGLB } = require("./convertToGLB");
+        ASSERT(this._loadedVoxelMesh !== undefined);
         var isFirstChunk = this._voxelMeshChunkIndex === 0;
         if (isFirstChunk) {
-            this._voxelMeshProgressHandle = progress_1.ProgressManager.Get.start('VoxelMeshBuffer');
+            this._voxelMeshProgressHandle = ProgressManager.Get.start('VoxelMeshBuffer');
             this._loadedVoxelMesh.setRenderParams(params);
         }
         var buffer = this._loadedVoxelMesh.getChunkedBuffer(this._voxelMeshChunkIndex);
         ++this._voxelMeshChunkIndex;
         if (this._voxelMeshProgressHandle !== undefined) {
             if (buffer.moreVoxelsToBuffer) {
-                progress_1.ProgressManager.Get.progress(this._voxelMeshProgressHandle, buffer.progress);
-            }
-            else {
-                progress_1.ProgressManager.Get.end(this._voxelMeshProgressHandle);
+                ProgressManager.Get.progress(this._voxelMeshProgressHandle, buffer.progress);
+            } else {
+                ProgressManager.Get.end(this._voxelMeshProgressHandle);
                 this._voxelMeshProgressHandle = undefined;
             }
         }
+        convertVoxelMeshToGLB(this._loadedVoxelMesh.getVoxels());
         return {
             buffer: buffer,
             dimensions: this._loadedVoxelMesh.getBounds().getDimensions(),
-            voxelSize: 1.0 / params.desiredHeight,
+            voxelSize: 8.0 / params.desiredHeight,
             moreVoxelsToBuffer: buffer.moreVoxelsToBuffer,
             isFirstChunk: isFirstChunk,
         };
     };
+
     WorkerClient.prototype.assign = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedVoxelMesh !== undefined);
-        this._loadedBlockMesh = block_mesh_1.BlockMesh.createFromVoxelMesh(this._loadedVoxelMesh, params);
+        const { ASSERT } = require("./util/error_util");
+        const { BlockMesh } = require("./block_mesh");
+        ASSERT(this._loadedVoxelMesh !== undefined);
+        this._loadedBlockMesh = BlockMesh.createFromVoxelMesh(this._loadedVoxelMesh, params);
         this._blockMeshChunkIndex = 0;
         return {};
     };
-    //private _blockMeshProgressHandle?: TTaskHandle;
+
     WorkerClient.prototype.renderChunkedBlockMesh = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedBlockMesh !== undefined);
+        const { ASSERT } = require("./util/error_util");
+        const { Atlas } = require("./atlas");
+        ASSERT(this._loadedBlockMesh !== undefined);
         var isFirstChunk = this._blockMeshChunkIndex === 0;
-        if (isFirstChunk) {
-            //this._blockMeshProgressHandle = ProgressManager.Get.start('BlockMeshBuffer');
-        }
         var buffer = this._loadedBlockMesh.getChunkedBuffer(this._blockMeshChunkIndex);
         ++this._blockMeshChunkIndex;
-        /*
-        if (this._blockMeshProgressHandle !== undefined) {
-            if (buffer.moreBlocksToBuffer) {
-                ProgressManager.Get.progress(this._blockMeshProgressHandle, buffer.progress);
-            } else {
-                ProgressManager.Get.end(this._blockMeshProgressHandle);
-                this._blockMeshProgressHandle = undefined;
-            }
-        }
-        */
-        var atlas = atlas_1.Atlas.load(params.textureAtlas);
-        (0, error_util_1.ASSERT)(atlas !== undefined);
+        var atlas = Atlas.load(params.textureAtlas);
+        ASSERT(atlas !== undefined);
         return {
             buffer: buffer,
             bounds: this._loadedBlockMesh.getVoxelMesh().getBounds(),
@@ -221,30 +244,18 @@ var WorkerClient = /** @class */ (function () {
             isFirstChunk: isFirstChunk,
         };
     };
-    /*
-    public renderBlockMesh(params: RenderBlockMeshParams.Input): RenderBlockMeshParams.Output {
-        ASSERT(this._loadedBlockMesh !== undefined);
 
-        const atlas = Atlas.load(params.textureAtlas);
-        ASSERT(atlas !== undefined);
-
-        return {
-            buffer: this._loadedBlockMesh.getBuffer(),
-            dimensions: this._loadedBlockMesh.getVoxelMesh().getBounds().getDimensions(),
-            atlasTexturePath: atlas.getAtlasTexturePath(),
-            atlasSize: atlas.getAtlasSize(),
-        };
-    }
-    */
     WorkerClient.prototype.export = function (params) {
-        (0, error_util_1.ASSERT)(this._loadedBlockMesh !== undefined);
-        var exporter = exporters_1.ExporterFactory.GetExporter(params.exporter);
+        const { ASSERT } = require("./util/error_util");
+        const { ExporterFactory } = require("./exporters/exporters");
+        ASSERT(this._loadedBlockMesh !== undefined);
+        var exporter = ExporterFactory.GetExporter(params.exporter);
         var files = exporter.export(this._loadedBlockMesh);
         return {
             files: files,
         };
     };
+
     return WorkerClient;
 }());
 exports.WorkerClient = WorkerClient;
-//# sourceMappingURL=worker_client.js.map

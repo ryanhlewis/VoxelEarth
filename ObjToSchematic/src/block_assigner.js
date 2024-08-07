@@ -14,7 +14,7 @@ var EFaceVisibility;
     EFaceVisibility[EFaceVisibility["East"] = 8] = "East";
     EFaceVisibility[EFaceVisibility["South"] = 16] = "South";
     EFaceVisibility[EFaceVisibility["West"] = 32] = "West";
-})(EFaceVisibility = exports.EFaceVisibility || (exports.EFaceVisibility = {}));
+})(EFaceVisibility || (exports.EFaceVisibility = EFaceVisibility = {}));
 /* eslint-enable */
 /**
  * A new instance of AtlasPalette is created each time
@@ -139,4 +139,3 @@ var AtlasPalette = /** @class */ (function () {
     return AtlasPalette;
 }());
 exports.AtlasPalette = AtlasPalette;
-//# sourceMappingURL=block_assigner.js.map

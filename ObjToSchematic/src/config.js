@@ -6,9 +6,9 @@ var AppConfig = /** @class */ (function () {
     function AppConfig() {
         this.MAJOR_VERSION = 0;
         this.MINOR_VERSION = 8;
-        this.HOTFIX_VERSION = 9;
+        this.HOTFIX_VERSION = 8;
         this.VERSION_TYPE = 'r'; // dev, alpha, or release build
-        this.MINECRAFT_VERSION = '1.20.1';
+        this.MINECRAFT_VERSION = '1.19.4';
         this.LOCALE = 'en-GB';
         this.VOXEL_BUFFER_CHUNK_SIZE = 50000;
         this.AMBIENT_OCCLUSION_OVERRIDE_CORNER = true;
@@ -19,13 +19,11 @@ var AppConfig = /** @class */ (function () {
         this.RENDER_TRIANGLE_THRESHOLD = 1000000;
         this.MAXIMUM_IMAGE_MEM_ALLOC = 2048;
         this.CAMERA_FOV_DEGREES = 30.0;
-        this.CAMERA_MINIMUM_DISTANCE = 0.125;
-        this.CAMERA_DEFAULT_DISTANCE_UNITS = 4.0;
+        this.CAMERA_DEFAULT_DISTANCE_UNITS = 18.0;
         this.CAMERA_DEFAULT_AZIMUTH_RADIANS = -1.0;
         this.CAMERA_DEFAULT_ELEVATION_RADIANS = 1.3;
         this.CAMERA_SENSITIVITY_ROTATION = 0.005;
-        this.CAMERA_SENSITIVITY_ZOOM = 0.0025;
-        this.CONSTRAINT_MINIMUM_HEIGHT = 3;
+        this.CAMERA_SENSITIVITY_ZOOM = 0.005;
         this.CONSTRAINT_MAXIMUM_HEIGHT = 380;
         this.SMOOTHNESS_MAX = 3.0;
         this.CAMERA_SMOOTHING = 1.0;
@@ -55,4 +53,3 @@ var AppConfig = /** @class */ (function () {
     return AppConfig;
 }());
 exports.AppConfig = AppConfig;
-//# sourceMappingURL=config.js.map

@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.Mesh = exports.MaterialType = void 0;
 var bounds_1 = require("./bounds");
 var colour_1 = require("./colour");
-var localiser_1 = require("./localiser");
+// var localiser_1 = require("./localiser");
 var math_1 = require("./math");
 var status_1 = require("./status");
 var texture_1 = require("./texture");
@@ -17,7 +17,7 @@ var MaterialType;
 (function (MaterialType) {
     MaterialType[MaterialType["solid"] = 0] = "solid";
     MaterialType[MaterialType["textured"] = 1] = "textured";
-})(MaterialType = exports.MaterialType || (exports.MaterialType = {}));
+})(MaterialType || (exports.MaterialType = MaterialType = {}));
 var Mesh = /** @class */ (function () {
     function Mesh(vertices, normals, uvs, tris, materials) {
         this.id = (0, util_1.getRandomID)();
@@ -91,15 +91,15 @@ var Mesh = /** @class */ (function () {
     Mesh.prototype._checkMesh = function () {
         // TODO: Check indices exist
         if (this._vertices.length === 0) {
-            throw new error_util_1.AppError((0, localiser_1.LOC)('import.no_vertices_loaded'));
+            // throw new error_util_1.AppError((0, localiser_1.LOC)('import.no_vertices_loaded'));
         }
         if (this._tris.length === 0) {
-            throw new error_util_1.AppError((0, localiser_1.LOC)('import.no_triangles_loaded'));
+            // throw new error_util_1.AppError((0, localiser_1.LOC)('import.no_triangles_loaded'));
         }
         if (this._tris.length >= 100000) {
-            status_1.StatusHandler.warning((0, localiser_1.LOC)('import.too_many_triangles', { count: this._tris.length }));
+            // status_1.StatusHandler.warning((0, localiser_1.LOC)('import.too_many_triangles', { count: this._tris.length }));
         }
-        status_1.StatusHandler.info((0, localiser_1.LOC)('import.vertex_triangle_count', { vertex_count: this._vertices.length, triangle_count: this._tris.length }));
+        // status_1.StatusHandler.info((0, localiser_1.LOC)('import.vertex_triangle_count', { vertex_count: this._vertices.length, triangle_count: this._tris.length }));
         // Give warning if normals are not defined
         var giveNormalsWarning = false;
         for (var triIndex = 0; triIndex < this.getTriangleCount(); ++triIndex) {
@@ -119,7 +119,7 @@ var Mesh = /** @class */ (function () {
             }
         }
         if (giveNormalsWarning) {
-            status_1.StatusHandler.warning((0, localiser_1.LOC)('import.missing_normals'));
+            // status_1.StatusHandler.warning((0, localiser_1.LOC)('import.missing_normals'));
         }
         ;
     };
@@ -227,9 +227,9 @@ var Mesh = /** @class */ (function () {
     Mesh.prototype._normaliseMesh = function () {
         var bounds = this.getBounds();
         var size = vector_1.Vector3.sub(bounds.max, bounds.min);
-        var scaleFactor = 1.0 / size.y;
+        var scaleFactor = Mesh.desiredHeight / size.y;
         if (isNaN(scaleFactor) || !isFinite(scaleFactor)) {
-            throw new error_util_1.AppError((0, localiser_1.LOC)('import.could_not_scale_mesh'));
+            // throw new error_util_1.AppError((0, localiser_1.LOC)('import.could_not_scale_mesh'));
         }
         else {
             this.scaleMesh(scaleFactor);
@@ -329,7 +329,7 @@ var Mesh = /** @class */ (function () {
     Mesh.prototype.clearTransform = function () {
         this._transform = undefined;
     };
+    Mesh.desiredHeight = 8.0;
     return Mesh;
 }());
 exports.Mesh = Mesh;
-//# sourceMappingURL=mesh.js.map

@@ -17,7 +17,7 @@ var __extends = (this && this.__extends) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NormalCorrectedRayVoxeliser = void 0;
 var bounds_1 = require("../bounds");
-var progress_1 = require("../progress");
+// var progress_1 = require("../progress");
 var ray_1 = require("../ray");
 var error_util_1 = require("../util/error_util");
 var vector_1 = require("../vector");
@@ -56,15 +56,15 @@ var NormalCorrectedRayVoxeliser = /** @class */ (function (_super) {
         this._size = vector_1.Vector3.sub(bounds.max.copy().ceil(), bounds.min.copy().floor());
         this._offset = new vector_1.Vector3(this._size.x % 2 === 0 ? 0.5 : 0.0, this._size.y % 2 === 0 ? 0.5 : 0.0, this._size.z % 2 === 0 ? 0.5 : 0.0);
         var numTris = mesh.getTriangleCount();
-        var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
+        // var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
         for (var triIndex = 0; triIndex < numTris; ++triIndex) {
-            progress_1.ProgressManager.Get.progress(taskHandle, triIndex / numTris);
+            // progress_1.ProgressManager.Get.progress(taskHandle, triIndex / numTris);
             var uvTriangle = mesh.getUVTriangle(triIndex);
             var normals = mesh.getNormals(triIndex);
             var material = mesh.getMaterialByTriangle(triIndex);
             this._voxeliseTri(uvTriangle, material, normals);
         }
-        progress_1.ProgressManager.Get.end(taskHandle);
+        // progress_1.ProgressManager.Get.end(taskHandle);
         mesh.clearTransform();
         return this._voxelMesh;
     };
@@ -141,4 +141,3 @@ var NormalCorrectedRayVoxeliser = /** @class */ (function (_super) {
     return NormalCorrectedRayVoxeliser;
 }(base_voxeliser_1.IVoxeliser));
 exports.NormalCorrectedRayVoxeliser = NormalCorrectedRayVoxeliser;
-//# sourceMappingURL=normal-corrected-ray-voxeliser.js.map

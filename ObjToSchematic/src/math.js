@@ -34,7 +34,7 @@ var AppMath;
         return Math.floor(Math.log2(n));
     }
     AppMath.largestPowerOfTwoLessThanN = largestPowerOfTwoLessThanN;
-})(AppMath = exports.AppMath || (exports.AppMath = {}));
+})(AppMath || (exports.AppMath = AppMath = {}));
 var argMax = function (array) {
     return array.map(function (x, i) { return [x, i]; }).reduce(function (r, a) { return (a[0] > r[0] ? a : r); })[1];
 };
@@ -140,4 +140,3 @@ var SmoothVectorVariable = /** @class */ (function () {
     return SmoothVectorVariable;
 }());
 exports.SmoothVectorVariable = SmoothVectorVariable;
-//# sourceMappingURL=math.js.map

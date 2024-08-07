@@ -28,7 +28,7 @@ var AppConstants;
         VoxelMeshBufferComponentOffsets.OCCLUSION = ComponentSize.OCCLUSION * AppConstants.COMPONENT_PER_SIZE_OFFSET;
     })(VoxelMeshBufferComponentOffsets = AppConstants.VoxelMeshBufferComponentOffsets || (AppConstants.VoxelMeshBufferComponentOffsets = {}));
     AppConstants.DATA_VERSION = 3105; // 1.19
-})(AppConstants = exports.AppConstants || (exports.AppConstants = {}));
+})(AppConstants || (exports.AppConstants = AppConstants = {}));
 var AppRuntimeConstants = /** @class */ (function () {
     function AppRuntimeConstants() {
         this.FALLABLE_BLOCKS = new Set([
@@ -121,4 +121,3 @@ var AppRuntimeConstants = /** @class */ (function () {
     return AppRuntimeConstants;
 }());
 exports.AppRuntimeConstants = AppRuntimeConstants;
-//# sourceMappingURL=constants.js.map

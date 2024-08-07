@@ -133,4 +133,3 @@ var OcclusionManager = /** @class */ (function () {
     return OcclusionManager;
 }());
 exports.OcclusionManager = OcclusionManager;
-//# sourceMappingURL=occlusion.js.map

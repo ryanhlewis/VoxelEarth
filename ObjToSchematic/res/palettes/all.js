@@ -312,4 +312,3 @@ exports.PALETTE_ALL_RELEASE = [
     'minecraft:yellow_terracotta',
     'minecraft:yellow_wool',
 ];
-//# sourceMappingURL=all.js.map

@@ -16,8 +16,8 @@ var __extends = (this && this.__extends) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ObjImporter = void 0;
-var progress_1 = require("../progress");
-var localiser_1 = require("../localiser");
+// var progress_1 = require("../progress");
+// var localiser_1 = require("../localiser");
 var math_1 = require("../math");
 var mesh_1 = require("../mesh");
 var util_1 = require("../util");
@@ -150,7 +150,7 @@ var ObjImporter = /** @class */ (function (_super) {
                                 break;
                             }
                             default:
-                                throw new error_util_1.AppError((0, localiser_1.LOC)('import.invalid_face_data', { count: vertexData.length }));
+                                // throw new error_util_1.AppError((0, localiser_1.LOC)('import.invalid_face_data', { count: vertexData.length }));
                         }
                     }
                     var pointBase = points[0];
@@ -188,19 +188,34 @@ var ObjImporter = /** @class */ (function (_super) {
         ];
         return _this;
     }
+
+    const fs = require('fs').promises;
+
+    async function readTextFile(filePath) {
+    const data = await fs.readFile(filePath, 'utf8');
+    return data;
+    }
+
+
     ObjImporter.prototype.import = function (file) {
         var _this = this;
-        return file.text().then(function (fileSource) {
+        // return file.text().then(function (fileSource) {
+        return readTextFile(file)
+            .then(fileSource => {
+                console.log('fileSource');
+                console.log(fileSource);
+              // Do something with the text
+            
             if (fileSource.includes('�')) {
-                throw new error_util_1.AppError((0, localiser_1.LOC)('import.invalid_encoding'));
+                // throw new error_util_1.AppError((0, localiser_1.LOC)('import.invalid_encoding'));
             }
             fileSource.replace('\r', ''); // Convert Windows carriage return
             var fileLines = fileSource.split('\n');
             var numLines = fileLines.length;
-            var progressHandle = progress_1.ProgressManager.Get.start('VoxelMeshBuffer');
+            // var progressHandle = progress_1.ProgressManager.Get.start('VoxelMeshBuffer');
             fileLines.forEach(function (line, index) {
                 _this.parseOBJLine(line);
-                progress_1.ProgressManager.Get.progress(progressHandle, index / numLines);
+                // progress_1.ProgressManager.Get.progress(progressHandle, index / numLines);
             });
             return new mesh_1.Mesh(_this._vertices, _this._normals, _this._uvs, _this._tris, new Map());
         });
@@ -216,7 +231,7 @@ var ObjImporter = /** @class */ (function (_super) {
                 }
                 catch (error) {
                     if (error instanceof error_util_1.AppError) {
-                        throw new error_util_1.AppError((0, localiser_1.LOC)('import.failed_to_parse_line', { line: line, error: error.message }));
+                        // throw new error_util_1.AppError((0, localiser_1.LOC)('import.failed_to_parse_line', { line: line, error: error.message }));
                     }
                 }
                 return;
@@ -232,4 +247,3 @@ var ObjImporter = /** @class */ (function (_super) {
     return ObjImporter;
 }(base_importer_1.IImporter));
 exports.ObjImporter = ObjImporter;
-//# sourceMappingURL=obj_importer.js.map

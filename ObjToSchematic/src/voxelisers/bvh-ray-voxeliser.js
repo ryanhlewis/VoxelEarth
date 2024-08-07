@@ -16,7 +16,7 @@ var __extends = (this && this.__extends) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BVHRayVoxeliser = void 0;
-var progress_1 = require("../progress");
+// var progress_1 = require("../progress");
 var ray_1 = require("../ray");
 var error_util_1 = require("../util/error_util");
 var log_util_1 = require("../util/log_util");
@@ -105,9 +105,9 @@ var BVHRayVoxeliser = /** @class */ (function (_super) {
         (0, error_util_1.ASSERT)(rays.length === rayIndex);
         (0, log_util_1.LOG)('Rays created...');
         // Ray test BVH
-        var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
+        // var taskHandle = progress_1.ProgressManager.Get.start('Voxelising');
         for (rayIndex = 0; rayIndex < rays.length; ++rayIndex) {
-            progress_1.ProgressManager.Get.progress(taskHandle, rayIndex / rays.length);
+            // progress_1.ProgressManager.Get.progress(taskHandle, rayIndex / rays.length);
             var ray = rays[rayIndex];
             var intersections = bvh.intersectRay(ray.origin, (0, ray_1.axesToDirection)(ray.axis), false);
             for (var _i = 0, intersections_1 = intersections; _i < intersections_1.length; _i++) {
@@ -118,11 +118,10 @@ var BVHRayVoxeliser = /** @class */ (function (_super) {
                 voxelMesh.addVoxel(position, voxelColour);
             }
         }
-        progress_1.ProgressManager.Get.end(taskHandle);
+        // progress_1.ProgressManager.Get.end(taskHandle);
         mesh.clearTransform();
         return voxelMesh;
     };
     return BVHRayVoxeliser;
 }(base_voxeliser_1.IVoxeliser));
 exports.BVHRayVoxeliser = BVHRayVoxeliser;
-//# sourceMappingURL=bvh-ray-voxeliser.js.map

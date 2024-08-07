@@ -16,10 +16,11 @@ var __extends = (this && this.__extends) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GltfLoader = void 0;
+require("@loaders.gl/polyfills");
 var core_1 = require("@loaders.gl/core");
 var gltf_1 = require("@loaders.gl/gltf");
 var colour_1 = require("../colour");
-var localiser_1 = require("../localiser");
+// var localiser_1 = require("../localiser");
 var mesh_1 = require("../mesh");
 var status_1 = require("../status");
 var util_1 = require("../util");
@@ -32,7 +33,7 @@ var GltfLoader = /** @class */ (function (_super) {
     }
     GltfLoader.prototype.import = function (file) {
         var _this = this;
-        status_1.StatusHandler.warning((0, localiser_1.LOC)('import.gltf_experimental'));
+        // status_1.StatusHandler.warning((0, localiser_1.LOC)('import.gltf_experimental'));
         return new Promise(function (resolve, reject) {
             (0, core_1.parse)(file, gltf_1.GLTFLoader, { loadImages: true })
                 .then(function (gltf) {
@@ -56,21 +57,25 @@ var GltfLoader = /** @class */ (function (_super) {
             canBeTextured: false,
         });
         var maxIndex = 0;
+        var materialIndex = 0; // New variable to create unique material identifiers
         Object.values(gltf.meshes).forEach(function (mesh) {
             Object.values(mesh.primitives).forEach(function (primitive) {
                 var attributes = primitive.attributes;
+                // Handling vertices
                 if (attributes.POSITION !== undefined) {
                     var positions = attributes.POSITION.value;
                     for (var i = 0; i < positions.length; i += 3) {
                         meshVertices.push(new vector_1.Vector3(positions[i + 0], positions[i + 1], positions[i + 2]));
                     }
                 }
+                // Handling normals
                 if (attributes.NORMAL !== undefined) {
                     var normals = attributes.NORMAL.value;
                     for (var i = 0; i < normals.length; i += 3) {
                         meshNormals.push(new vector_1.Vector3(normals[i + 0], normals[i + 1], normals[i + 2]));
                     }
                 }
+                // Handling texture coordinates
                 if (attributes.TEXCOORD_0 !== undefined) {
                     var texcoords = attributes.TEXCOORD_0.value;
                     for (var i = 0; i < texcoords.length; i += 2) {
@@ -78,110 +83,73 @@ var GltfLoader = /** @class */ (function (_super) {
                     }
                 }
                 // Material
-                var materialNameToUse = 'NONE';
-                {
-                    if (primitive.material) {
-                        var materialName = primitive.material.name;
-                        var materialMade = false;
-                        var pbr = primitive.material.pbrMetallicRoughness;
-                        if (pbr !== undefined) {
-                            var diffuseTexture = pbr.baseColorTexture;
-                            if (diffuseTexture !== undefined) {
-                                var imageData = diffuseTexture.texture.source.bufferView.data;
-                                var mimeType = diffuseTexture.texture.source.mimeType;
-                                try {
-                                    if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') {
-                                        status_1.StatusHandler.warning((0, localiser_1.LOC)('import.unsupported_image_type', { file_name: diffuseTexture.texture.source.id, file_type: mimeType }));
-                                        throw new Error('Unsupported image type');
-                                    }
-                                    var base64 = btoa(imageData.reduce(function (data, byte) { return data + String.fromCharCode(byte); }, ''));
-                                    meshMaterials.set(materialName, {
-                                        type: mesh_1.MaterialType.textured,
-                                        diffuse: {
-                                            filetype: mimeType === 'image/jpeg' ? 'jpg' : 'png',
-                                            raw: (mimeType === 'image/jpeg' ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + base64,
-                                        },
-                                        extension: 'clamp',
-                                        interpolation: 'linear',
-                                        needsAttention: false,
-                                        transparency: { type: 'None' },
-                                    });
+                var materialBaseName = 'NONE';
+                if (primitive.material) {
+                    materialBaseName = primitive.material.name || 'Material';
+                }
+                var materialNameToUse = materialBaseName + '_' + materialIndex; // Unique material identifier
+                materialIndex++; // Increment material index
+                // Handling materials
+                if (primitive.material) {
+                    var pbr = primitive.material.pbrMetallicRoughness;
+                    if (pbr !== undefined) {
+                        var diffuseTexture = pbr.baseColorTexture;
+                        if (diffuseTexture !== undefined) {
+                            var imageData = diffuseTexture.texture.source.bufferView.data;
+                            var mimeType = diffuseTexture.texture.source.mimeType;
+                            try {
+                                console.log('mimeType', mimeType);
+                                console.log('imageData', imageData);
+                                if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') {
+                                    status_1.StatusHandler.warning((0, localiser_1.LOC)('import.unsupported_image_type', { file_name: diffuseTexture.texture.source.id, file_type: mimeType }));
+                                    throw new Error('Unsupported image type');
                                 }
-                                catch (_a) {
-                                    meshMaterials.set(materialName, {
-                                        type: mesh_1.MaterialType.solid,
-                                        colour: colour_1.RGBAUtil.copy(colour_1.RGBAColours.WHITE),
-                                        needsAttention: false,
-                                        canBeTextured: true,
-                                    });
-                                }
-                                /*
-
-                                */
-                                materialNameToUse = materialName;
-                                materialMade = true;
+                                var base64 = btoa(imageData.reduce(function (data, byte) { return data + String.fromCharCode(byte); }, ''));
+                                meshMaterials.set(materialNameToUse, {
+                                    type: mesh_1.MaterialType.textured,
+                                    diffuse: {
+                                        filetype: mimeType === 'image/jpeg' ? 'jpg' : 'png',
+                                        raw: (mimeType === 'image/jpeg' ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + base64,
+                                    },
+                                    extension: 'clamp',
+                                    interpolation: 'linear',
+                                    needsAttention: false,
+                                    transparency: { type: 'None' },
+                                });
                             }
-                            else {
-                                var diffuseColour = pbr.baseColorFactor;
-                                if (diffuseColour !== undefined) {
-                                    meshMaterials.set(materialName, {
-                                        type: mesh_1.MaterialType.solid,
-                                        colour: {
-                                            r: diffuseColour[0],
-                                            g: diffuseColour[1],
-                                            b: diffuseColour[2],
-                                            a: diffuseColour[3],
-                                        },
-                                        needsAttention: false,
-                                        canBeTextured: false,
-                                    });
-                                }
-                                materialNameToUse = materialName;
-                                materialMade = true;
+                            catch (_a) {
+                                meshMaterials.set(materialNameToUse, {
+                                    type: mesh_1.MaterialType.solid,
+                                    colour: colour_1.RGBAUtil.copy(colour_1.RGBAColours.WHITE),
+                                    needsAttention: false,
+                                    canBeTextured: true,
+                                });
                             }
-                        }
-                        var emissiveColour = primitive.material.pbr;
-                        if (!materialMade && emissiveColour !== undefined) {
-                            meshMaterials.set(materialName, {
-                                type: mesh_1.MaterialType.solid,
-                                colour: {
-                                    r: emissiveColour[0],
-                                    g: emissiveColour[1],
-                                    b: emissiveColour[2],
-                                    a: 1.0,
-                                },
-                                needsAttention: false,
-                                canBeTextured: false,
-                            });
-                            materialNameToUse = materialName;
-                            materialMade = true;
                         }
                     }
                 }
                 // Indices
-                {
-                    var indices = primitive.indices.value;
-                    for (var i = 0; i < indices.length / 3; ++i) {
-                        meshTriangles.push({
-                            material: materialNameToUse,
-                            positionIndices: {
-                                x: maxIndex + indices[i * 3 + 0],
-                                y: maxIndex + indices[i * 3 + 1],
-                                z: maxIndex + indices[i * 3 + 2],
-                            },
-                            texcoordIndices: {
-                                x: maxIndex + indices[i * 3 + 0],
-                                y: maxIndex + indices[i * 3 + 1],
-                                z: maxIndex + indices[i * 3 + 2],
-                            },
-                        });
-                    }
-                    var localMax = 0;
-                    for (var i = 0; i < indices.length; ++i) {
-                        localMax = Math.max(localMax, indices[i]);
-                    }
-                    maxIndex += localMax + 1;
+                var indices = primitive.indices.value;
+                for (var i = 0; i < indices.length / 3; ++i) {
+                    meshTriangles.push({
+                        material: materialNameToUse,
+                        positionIndices: {
+                            x: maxIndex + indices[i * 3 + 0],
+                            y: maxIndex + indices[i * 3 + 1],
+                            z: maxIndex + indices[i * 3 + 2],
+                        },
+                        texcoordIndices: {
+                            x: maxIndex + indices[i * 3 + 0],
+                            y: maxIndex + indices[i * 3 + 1],
+                            z: maxIndex + indices[i * 3 + 2],
+                        },
+                    });
                 }
+                var localMax = 0;
+                for (var i = 0; i < indices.length; ++i) {
+                    localMax = Math.max(localMax, indices[i]);
+                }
+                maxIndex += localMax + 1;
             });
         });
         return new mesh_1.Mesh(meshVertices, meshNormals, meshTexcoords, meshTriangles, meshMaterials);
@@ -189,4 +157,3 @@ var GltfLoader = /** @class */ (function (_super) {
     return GltfLoader;
 }(base_importer_1.IImporter));
 exports.GltfLoader = GltfLoader;
-//# sourceMappingURL=gltf_loader.js.map

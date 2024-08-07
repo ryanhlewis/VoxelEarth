@@ -1,30 +1,7 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TextureConverter = exports.Texture = exports.EImageChannel = exports.TextureFiltering = exports.TextureFormat = void 0;
-var jpeg = __importStar(require("jpeg-js"));
+var jpeg = require("jpeg-js");
 var pngjs_1 = require("pngjs");
 var colour_1 = require("./colour");
 var config_1 = require("./config");
@@ -37,14 +14,14 @@ var TextureFormat;
 (function (TextureFormat) {
     TextureFormat[TextureFormat["PNG"] = 0] = "PNG";
     TextureFormat[TextureFormat["JPEG"] = 1] = "JPEG";
-})(TextureFormat = exports.TextureFormat || (exports.TextureFormat = {}));
+})(TextureFormat || (exports.TextureFormat = TextureFormat = {}));
 /* eslint-enable */
 /* eslint-disable */
 var TextureFiltering;
 (function (TextureFiltering) {
     TextureFiltering[TextureFiltering["Linear"] = 0] = "Linear";
     TextureFiltering[TextureFiltering["Nearest"] = 1] = "Nearest";
-})(TextureFiltering = exports.TextureFiltering || (exports.TextureFiltering = {}));
+})(TextureFiltering || (exports.TextureFiltering = TextureFiltering = {}));
 /* eslint-disable */
 var EImageChannel;
 (function (EImageChannel) {
@@ -53,7 +30,7 @@ var EImageChannel;
     EImageChannel[EImageChannel["B"] = 2] = "B";
     EImageChannel[EImageChannel["A"] = 3] = "A";
     EImageChannel[EImageChannel["MAX"] = 4] = "MAX";
-})(EImageChannel = exports.EImageChannel || (exports.EImageChannel = {}));
+})(EImageChannel || (exports.EImageChannel = EImageChannel = {}));
 var Texture = /** @class */ (function () {
     function Texture(params) {
         this._image = this._readRawData(params.diffuse);
@@ -218,4 +195,3 @@ var TextureConverter = /** @class */ (function () {
     return TextureConverter;
 }());
 exports.TextureConverter = TextureConverter;
-//# sourceMappingURL=texture.js.map

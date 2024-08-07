@@ -48,4 +48,3 @@ var Bounds = /** @class */ (function () {
     return Bounds;
 }());
 exports.Bounds = Bounds;
-//# sourceMappingURL=bounds.js.map

@@ -5,7 +5,7 @@ var config_1 = require("./config");
 var constants_1 = require("./constants");
 var geometry_1 = require("./geometry");
 var occlusion_1 = require("./occlusion");
-var progress_1 = require("./progress");
+// var progress_1 = require("./progress");
 var util_1 = require("./util");
 var error_util_1 = require("./util/error_util");
 var vector_1 = require("./vector");
@@ -148,13 +148,13 @@ var BufferGenerator = /** @class */ (function () {
         }
         var materialBuffers = [];
         var trianglesHandled = 0;
-        var taskHandle = progress_1.ProgressManager.Get.start('MeshBuffer');
+        // var taskHandle = progress_1.ProgressManager.Get.start('MeshBuffer');
         // Create the buffers for each material and fill with data from the triangles
         materialTriangleCount.forEach(function (triangleCount, materialName) {
             var materialBuffer = BufferGenerator.createMaterialBuffer(triangleCount);
             var insertIndex = 0;
             for (var triIndex = 0; triIndex < numTris; ++triIndex) {
-                progress_1.ProgressManager.Get.progress(taskHandle, trianglesHandled / numTris);
+                // progress_1.ProgressManager.Get.progress(taskHandle, trianglesHandled / numTris);
                 var material_1 = mesh.getMaterialByTriangle(triIndex);
                 if (material_1 === materialName) {
                     ++trianglesHandled;
@@ -197,7 +197,7 @@ var BufferGenerator = /** @class */ (function () {
                 materialName: materialName,
             });
         });
-        progress_1.ProgressManager.Get.end(taskHandle);
+        // progress_1.ProgressManager.Get.end(taskHandle);
         return materialBuffers;
     };
     /*
@@ -373,4 +373,3 @@ var BufferGenerator = /** @class */ (function () {
     return BufferGenerator;
 }());
 exports.BufferGenerator = BufferGenerator;
-//# sourceMappingURL=buffer.js.map

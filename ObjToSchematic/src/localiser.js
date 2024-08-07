@@ -35,12 +35,9 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LOC = exports.Localiser = void 0;
-var i18next_1 = __importDefault(require("i18next"));
+var i18next_1 = require("i18next");
 var base_1 = require("../loc/base");
 var config_1 = require("./config");
 var event_1 = require("./event");
@@ -65,7 +62,7 @@ var Localiser = /** @class */ (function () {
                         base_1.locales.forEach(function (locale) {
                             localResources[locale.language_code] = { translation: locale.translations };
                         });
-                        return [4 /*yield*/, i18next_1.default.init({
+                        return [4 /*yield*/, i18next_1.init({
                                 lng: config_1.AppConfig.Get.LOCALE,
                                 fallbackLng: 'en-GB',
                                 debug: true,
@@ -73,7 +70,7 @@ var Localiser = /** @class */ (function () {
                             })];
                     case 1:
                         _a.sent();
-                        (0, error_util_1.ASSERT)(i18next_1.default.isInitialized, 'i18next not initialised');
+                        (0, error_util_1.ASSERT)(i18next_1.isInitialized, 'i18next not initialised');
                         return [2 /*return*/];
                 }
             });
@@ -83,7 +80,7 @@ var Localiser = /** @class */ (function () {
         return __awaiter(this, void 0, void 0, function () {
             return __generator(this, function (_a) {
                 switch (_a.label) {
-                    case 0: return [4 /*yield*/, i18next_1.default.changeLanguage(languageKey)];
+                    case 0: return [4 /*yield*/, i18next_1.changeLanguage(languageKey)];
                     case 1:
                         _a.sent();
                         event_1.EventManager.Get.broadcast(event_1.EAppEvent.onLanguageChanged);
@@ -93,13 +90,12 @@ var Localiser = /** @class */ (function () {
         });
     };
     Localiser.prototype.translate = function (p, options) {
-        return i18next_1.default.t(p, options);
+        return i18next_1.t(p, options);
     };
     Localiser.prototype.getCurrentLanguage = function () {
-        return i18next_1.default.language;
+        return i18next_1.language;
     };
     return Localiser;
 }());
 exports.Localiser = Localiser;
 exports.LOC = Localiser.Get.translate;
-//# sourceMappingURL=localiser.js.map

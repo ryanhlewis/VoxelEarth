@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IVoxeliser = void 0;
 var colour_1 = require("../colour");
 var config_1 = require("../config");
-var localiser_1 = require("../localiser");
+// var localiser_1 = require("../localiser");
 var mesh_1 = require("../mesh");
 var status_1 = require("../status");
 var triangle_1 = require("../triangle");
@@ -15,9 +15,9 @@ var IVoxeliser = /** @class */ (function () {
     }
     IVoxeliser.prototype.voxelise = function (mesh, voxeliseParams) {
         var voxelMesh = this._voxelise(mesh, voxeliseParams);
-        status_1.StatusHandler.info((0, localiser_1.LOC)('voxelise.voxel_count', { count: voxelMesh.getVoxelCount() }));
+        // status_1.StatusHandler.info((0, localiser_1.LOC)('voxelise.voxel_count', { count: voxelMesh.getVoxelCount() }));
         var dim = voxelMesh.getBounds().getDimensions().add(1);
-        status_1.StatusHandler.info((0, localiser_1.LOC)('voxelise.voxel_mesh_dimensions', { x: dim.x, y: dim.y, z: dim.z }));
+        // status_1.StatusHandler.info((0, localiser_1.LOC)('voxelise.voxel_mesh_dimensions', { x: dim.x, y: dim.y, z: dim.z }));
         return voxelMesh;
     };
     /**
@@ -55,4 +55,3 @@ var IVoxeliser = /** @class */ (function () {
     return IVoxeliser;
 }());
 exports.IVoxeliser = IVoxeliser;
-//# sourceMappingURL=base-voxeliser.js.map

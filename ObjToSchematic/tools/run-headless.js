@@ -40,14 +40,25 @@ var log_util_1 = require("../src/util/log_util");
 var path_util_1 = require("../src/util/path_util");
 var headless_1 = require("./headless");
 var headless_config_1 = require("./headless-config");
-void function main() {
-    return __awaiter(this, void 0, void 0, function () {
-        return __generator(this, function (_a) {
-            path_util_1.AppPaths.Get.setBaseDir(path_util_1.PathUtil.join(__dirname, '../..'));
-            (0, headless_1.runHeadless)(headless_config_1.headlessConfig);
-            (0, log_util_1.LOG_MAJOR)('\nFinished!');
-            return [2 /*return*/];
-        });
-    });
-}();
-//# sourceMappingURL=run-headless.js.map
+const path_1 = require('path');
+"use strict";
+// ... (existing imports and utility functions)
+// ... (existing imports and utility functions)
+
+async function main(headlessConfig) {  // Add headlessConfig as a parameter
+    // Set the base directory
+    path_util_1.AppPaths.get().setBaseDir(path_1.join(__dirname, '../..'));
+    
+    // Run the headless conversion and await its result
+    const meshResult = await headless_1.runHeadless(headlessConfig);  // Use the passed-in config
+    
+    // Log the completion
+    (0, log_util_1.LOG_MAJOR)('\nFinished!');
+
+    // Return the mesh result
+    return meshResult;
+}
+
+// Export main as an async function so it can be used in server.js
+module.exports.runHeadless = main;
+

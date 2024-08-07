@@ -60,4 +60,3 @@ var UVTriangle = /** @class */ (function (_super) {
     return UVTriangle;
 }(Triangle));
 exports.UVTriangle = UVTriangle;
-//# sourceMappingURL=triangle.js.map

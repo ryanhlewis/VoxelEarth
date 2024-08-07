@@ -75,13 +75,11 @@ var VoxelMesh = /** @class */ (function () {
         var pos = inPos.copy().round();
         var voxel = this._voxels.get(pos.hash());
         if (voxel !== undefined) {
-            if (this._voxelMeshParams.voxelOverlapRule === 'average') {
-                voxel.colour.r = ((voxel.colour.r * voxel.collisions) + colour.r) / (voxel.collisions + 1);
-                voxel.colour.g = ((voxel.colour.g * voxel.collisions) + colour.g) / (voxel.collisions + 1);
-                voxel.colour.b = ((voxel.colour.b * voxel.collisions) + colour.b) / (voxel.collisions + 1);
-                voxel.colour.a = ((voxel.colour.a * voxel.collisions) + colour.a) / (voxel.collisions + 1);
-                ++voxel.collisions;
-            }
+            voxel.colour.r = ((voxel.colour.r * voxel.collisions) + colour.r) / (voxel.collisions + 1);
+            voxel.colour.g = ((voxel.colour.g * voxel.collisions) + colour.g) / (voxel.collisions + 1);
+            voxel.colour.b = ((voxel.colour.b * voxel.collisions) + colour.b) / (voxel.collisions + 1);
+            voxel.colour.a = ((voxel.colour.a * voxel.collisions) + colour.a) / (voxel.collisions + 1);
+            ++voxel.collisions;
         }
         else {
             this._voxels.set(pos.hash(), {
@@ -181,4 +179,3 @@ var VoxelMesh = /** @class */ (function () {
     return VoxelMesh;
 }());
 exports.VoxelMesh = VoxelMesh;
-//# sourceMappingURL=voxel_mesh.js.map

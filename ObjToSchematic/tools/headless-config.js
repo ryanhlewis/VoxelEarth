@@ -6,13 +6,15 @@ var util_1 = require("../src/util");
 var vector_1 = require("../src/vector");
 exports.headlessConfig = {
     import: {
-        file: new File([], '/Users/lucasdower/ObjToSchematic/res/samples/skull.obj'),
+        // file: new File([], '/Users/lucasdower/ObjToSchematic/res/samples/skull.obj'),
+        // file: '/Users/ryanhardesty/Documents/GitHub/MCG/ObjToSchematic-main/ObjToSchematic-main - Copy/res/samples/skull.obj',
+        file: '/Users/ryanhardesty/Pictures/shiba.glb',
         rotation: new vector_1.Vector3(0, 0, 0),
     },
     voxelise: {
         constraintAxis: 'y',
         voxeliser: 'bvh-ray',
-        size: 80,
+        size: 100,
         useMultisampleColouring: false,
         voxelOverlapRule: 'average',
         enableAmbientOcclusion: false, // Only want true if exporting to .obj
@@ -39,4 +41,3 @@ exports.headlessConfig = {
         showTimings: true,
     },
 };
-//# sourceMappingURL=headless-config.js.map
