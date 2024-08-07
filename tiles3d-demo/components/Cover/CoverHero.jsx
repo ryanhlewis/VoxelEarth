@@ -43,16 +43,16 @@ const CoverHero = () => {
         color="inherit"
         variant={isDesktop ? 'h5' : 'subtitle1'}
       >
-        Photorealistic 3D Tiles + deck.gl + CARTO
+        Photorealistic 3D Tiles + Minecraft Style
       </Typography>
       <Box className={classes.title}>
         <Typography color="inherit" variant={isDesktop ? 'h3' : 'h4'}>
-          The Importance of Vegetation for Cities. 
+          Voxel Earth
         </Typography>
       </Box>
       <Box mb={4}>
         <Typography color="inherit" variant={isDesktop ? 'body1' : 'body2'}>
-          This CARTO story map is brought to you in collaboration with Google Maps Platform and deck.gl.
+          This on-demand voxelization of Google Earth allows us to see true beauty in the world through blocks.
         </Typography>
       </Box>
       <Button

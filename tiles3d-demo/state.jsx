@@ -55,18 +55,19 @@ export const AppStateStore = ({children}) => {
 
   const updateViewState = function (viewState, shouldOrbit) {
     if(currentSlide) setLoadRemoteLayers(true);
-    setViewState({
-      transitionDuration: 5000,
-      ...viewState,
-      transitionEasing: Easing.Quadratic.InOut,
-      transitionInterpolator: new FlyToInterpolator({curve: 1.1}),
-      onTransitionEnd: () => {
-        setLoadRemoteLayers(true);
-        if (shouldOrbit) {
-          orbit();
-        }
-      }
-    });
+    orbit();
+    // setViewState({
+    //   transitionDuration: 5000,
+    //   ...viewState,
+    //   transitionEasing: Easing.Quadratic.InOut,
+    //   transitionInterpolator: new FlyToInterpolator({curve: 1.1}),
+    //   onTransitionEnd: () => {
+    //     setLoadRemoteLayers(true);
+    //     if (shouldOrbit) {
+    //       orbit();
+    //     }
+    //   }
+    // });
   };
 
   useEffect(() => {
@@ -86,9 +87,9 @@ export const AppStateStore = ({children}) => {
 
         // Limit to single zoom level to avoid flashing (due to fade in transition)
         // and to limit data use on mobile
-        props.minZoom = 12;
-        props.maxZoom = 12;
-        props.extent = isDesktop ? FULL_EXTENT : LIMITED_EXTENT;
+        props.minZoom = 0;
+        props.maxZoom = 20;
+        // props.extent = isDesktop ? FULL_EXTENT : LIMITED_EXTENT;
 
         return visible ? l.clone(props) : null;
       }));

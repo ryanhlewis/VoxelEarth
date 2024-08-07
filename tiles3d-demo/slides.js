@@ -3,8 +3,19 @@ import {TEMPERATURE_COLOR_SCALE, DISTANCE_COLOR_SCALE, PRIORITY_COLOR_SCALE} fro
 export default [
   /* 0 */ {
     layers: ['google-3d'],
-    view: {latitude: 50.081033020810736, longitude: 14.451093643141064, bearing: 0, pitch: 40, zoom: 17, height: 400},
-    orbit: true
+    // 40.755825, -73.955375
+    //  view: {latitude: 40.7555, longitude: -73.955375, bearing: 10, pitch: 50, zoom: 17.2, height: 20},
+    // 30.28628718730663, -97.73937592789336
+
+    // london
+    // view: {latitude: 51.5074, longitude: -0.1278, bearing: 0, pitch: 50, zoom: 17.2, height: 20},
+
+    // view: {latitude: 30.28628718730663, longitude: -97.73937592789336, bearing: 0, pitch: 70, zoom: 17.4, height: 200},
+     view: {latitude: 50.081033020810736, longitude: 14.451093643141064, bearing: 0, pitch: 40, zoom: 17, height: 400},
+    // 30.266466-97.7407520
+    // view: {latitude: 30.266466, longitude: -97.7407520, bearing: 0, pitch: 40, zoom: 17, height: 400},
+    
+     orbit: true
   },
   /* 1 */ {
     layers: ['google-3d'],

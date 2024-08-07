@@ -100,7 +100,7 @@ const Header = ({primary, hidden, showDelay = 0, hideDelay = 0, className}) => {
           </IconButton>
         </ClickAwayListener>
       </Hidden>
-      <Hidden smDown>
+      {/* <Hidden smDown>
         <Button
           data-position="right"
           component="a"
@@ -125,7 +125,7 @@ const Header = ({primary, hidden, showDelay = 0, hideDelay = 0, className}) => {
           </Button>
         </ClickAwayListener>
       </Hidden>
-      <About />
+      <About /> */}
       <Share anchorEl={rootRef?.current} ref={shareRef} />
     </div>
   );

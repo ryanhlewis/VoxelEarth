@@ -58,8 +58,8 @@ const useStyles = makeStyles((theme) => ({
     top: 0,
     width: '100%',
     height: '100%',
-    backgroundImage:
-      'linear-gradient(to bottom, rgba(15, 17, 20, 0.84), rgba(15, 17, 20, 0.8) 65%, rgba(15, 17, 20, 0.2))',
+    // backgroundImage:
+    //   'linear-gradient(to bottom, rgba(15, 17, 20, 0.84), rgba(15, 17, 20, 0.8) 65%, rgba(15, 17, 20, 0.2))',
     transition: theme.transitions.create('opacity', {
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.leavingScreen
@@ -97,11 +97,11 @@ const Map = () => {
         <div className={classes.mapWrapper} id="mapWrapper">
           <DeckGL 
             initialViewState={viewState}
-            controller={{touchRotate: true, minZoom: 12, maxZoom: 17, inertia: 250}}
+            controller={{touchRotate: true, minZoom: 0, maxZoom: 20, inertia: 250}}
             layers={layers}
             onViewStateChange={({viewState}) => {
-              viewState.longitude = Math.min(LONGITUDE_RANGE[1], Math.max(LONGITUDE_RANGE[0], viewState.longitude));
-              viewState.latitude = Math.min(LATITUDE_RANGE[1], Math.max(LATITUDE_RANGE[0], viewState.latitude));
+              // viewState.longitude = Math.min(LONGITUDE_RANGE[1], Math.max(LONGITUDE_RANGE[0], viewState.longitude));
+              // viewState.latitude = Math.min(LATITUDE_RANGE[1], Math.max(LATITUDE_RANGE[0], viewState.latitude));
               currentViewState = viewState;
               return viewState;
             }}

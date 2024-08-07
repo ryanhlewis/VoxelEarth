@@ -2,10 +2,12 @@ import {Tile3DLayer} from '@deck.gl/geo-layers';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 
-const TILES3D_SERVER = 'https://tile.googleapis.com';
+// http://localhost:3005
+//const TILES3D_SERVER = 'https://tile.googleapis.com';
+const TILES3D_SERVER = 'http://127.0.0.1:3005';
 
 // For development use local endpoint via vite proxy (see vite.config.js)
-const useLocalCache = location.host.includes('127.0.0.1');
+const useLocalCache = false;
 
 const TILESET = `${useLocalCache ? '' : TILES3D_SERVER}/v1/3dtiles/root.json`;
 
@@ -35,6 +37,12 @@ export function createGoogle3DLayer(setCredits) {
       if (!isNaN(sseOverride)) {
         tileset3d.options.maximumScreenSpaceError = sseOverride;
       }
+
+      tileset.maximumMemoryUsage = Math.pow(2, 20);
+      tileset.setProps({
+        maximumScreenSpaceError: 0,
+        maximumMemoryUsage: Math.pow(2, 20),
+      })
 
       tileset3d.options.onTraversalComplete = selectedTiles => {
         // Do not show tiles which are many layers too low in resolution (avoids artifacts)

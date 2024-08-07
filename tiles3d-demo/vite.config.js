@@ -75,12 +75,12 @@ export default {
         target: 'https://tile.googleapis.com',
         changeOrigin: true,
         rewrite: path => path,
-        configure: proxy => {
-          proxy.on('proxyRes', proxyRes => {
-            // Cache 3D tiles locally for better perf (during development)
-            proxyRes.headers['cache-control'] = 'public,max-age=100000,must-revalidate';
-          });
-        }
+        // configure: proxy => {
+        //   proxy.on('proxyRes', proxyRes => {
+        //     // Cache 3D tiles locally for better perf (during development)
+        //     proxyRes.headers['cache-control'] = 'public,max-age=100000,must-revalidate';
+        //   });
+        // }
       }
     }
 

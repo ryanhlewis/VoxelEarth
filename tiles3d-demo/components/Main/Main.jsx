@@ -44,11 +44,13 @@ const Main = () => {
       ].join(" ")}
     >
       <Map />
-      <CoverHeader />
+      
+       {/* <CoverHeader /> */}
       <CoverHero />
-      <CoverFooter />
-      <CoverLegend />
-      <Sidebar />
+      {/* <CoverFooter /> */}
+      {/* <CoverLegend /> */}
+      <Sidebar /> 
+      
       <Header hidden={currentSlide > 0} hideDelay={500} showDelay={0} />
     </div>
   );

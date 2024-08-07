@@ -24,14 +24,15 @@ import slide4Image from '../../assets/images/slides/slide4.jpg';
 import slide5Image from '../../assets/images/slides/slide5.jpg';
 
 export const SIDEBAR_WIDTH = {
-  xs: '400px',
-  xsNr: 400,
-  lg: '460px',
-  lgNr: 460
+  xs: '0px',
+  xsNr: 0,
+  lg: '0px',
+  lgNr: 0
 };
 
 const useStyles = makeStyles((theme) => ({
   drawer: {
+    display: 'none',
     flexShrink: 0,
     zIndex: 1,
     height: 0,
