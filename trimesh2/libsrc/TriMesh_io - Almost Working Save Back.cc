@@ -17,9 +17,8 @@ Can write: PLY (triangle mesh, range grid), OFF, OBJ, RAY, SM, STL, PTS, C++, DA
 #include <map>
 
 // include draco for mesh compression
-#include "draco_features.h" // Use this if the build directory is included in INCLUDES
-#include "compression/decode.h" // Use this if the src directory is included in INCLUDES
-
+#include "draco/draco_features.h"
+#include "draco/compression/decode.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -322,51 +321,54 @@ void dbgModel(tinygltf::Model &model) {
 
 
 
+
+
 // Function to save TriMesh to GLB
 bool save_gltf(const char *filename, const TriMesh *mesh) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     tinygltf::Buffer buffer;
 
-    // Helper function to add buffer data and return the accessor index
-    auto addBufferData = [&buffer, &model](const void* data, size_t size, int componentType, int type, int count, int stride) -> int {
-        size_t offset = buffer.data.size();
-        buffer.data.resize(offset + size);
-        memcpy(buffer.data.data() + offset, data, size);
+// Helper function to add buffer data and return the accessor index
+auto addBufferData = [&buffer, &model](const void* data, size_t size, int componentType, int type, int count, int stride) -> int {
+    size_t offset = buffer.data.size();
+    buffer.data.resize(offset + size);
+    memcpy(buffer.data.data() + offset, data, size);
 
-        tinygltf::BufferView bufferView;
-        bufferView.buffer = 0;
-        bufferView.byteOffset = offset;
-        bufferView.byteLength = size;
-        bufferView.byteStride = (type == TINYGLTF_TYPE_SCALAR) ? 0 : stride;
-        bufferView.target = (type == TINYGLTF_TYPE_SCALAR) ? TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER : TINYGLTF_TARGET_ARRAY_BUFFER;
-        model.bufferViews.push_back(bufferView);
+    tinygltf::BufferView bufferView;
+    bufferView.buffer = 0;
+    bufferView.byteOffset = offset;
+    bufferView.byteLength = size;
+    bufferView.byteStride = stride;
+    bufferView.target = (type == TINYGLTF_TYPE_SCALAR) ? TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER : TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(bufferView);
 
-        tinygltf::Accessor accessor;
-        accessor.bufferView = model.bufferViews.size() - 1;
-        accessor.byteOffset = 0;
-        accessor.componentType = componentType;
-        accessor.count = count;
-        accessor.type = type;
+    tinygltf::Accessor accessor;
+    accessor.bufferView = model.bufferViews.size() - 1;
+    accessor.byteOffset = 0;
+    accessor.componentType = componentType;
+    accessor.count = count;
+    accessor.type = type;
 
-        // Compute min and max values for POSITION and COLOR_0 accessors
-        if (type == TINYGLTF_TYPE_VEC3 && componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
-            const float* float_data = static_cast<const float*>(data);
-            accessor.minValues.resize(3, std::numeric_limits<double>::max());
-            accessor.maxValues.resize(3, std::numeric_limits<double>::lowest());
-            for (int i = 0; i < count; ++i) {
-                accessor.minValues[0] = std::min(accessor.minValues[0], static_cast<double>(float_data[i * 3 + 0]));
-                accessor.minValues[1] = std::min(accessor.minValues[1], static_cast<double>(float_data[i * 3 + 1]));
-                accessor.minValues[2] = std::min(accessor.minValues[2], static_cast<double>(float_data[i * 3 + 2]));
-                accessor.maxValues[0] = std::max(accessor.maxValues[0], static_cast<double>(float_data[i * 3 + 0]));
-                accessor.maxValues[1] = std::max(accessor.maxValues[1], static_cast<double>(float_data[i * 3 + 1]));
-                accessor.maxValues[2] = std::max(accessor.maxValues[2], static_cast<double>(float_data[i * 3 + 2]));
-            }
+    // Compute min and max values for POSITION and COLOR_0 accessors
+    if (type == TINYGLTF_TYPE_VEC3 && componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
+        const float* float_data = static_cast<const float*>(data);
+        accessor.minValues.resize(3, std::numeric_limits<double>::max());
+        accessor.maxValues.resize(3, std::numeric_limits<double>::lowest());
+        for (int i = 0; i < count; ++i) {
+            accessor.minValues[0] = std::min(accessor.minValues[0], static_cast<double>(float_data[i * 3 + 0]));
+            accessor.minValues[1] = std::min(accessor.minValues[1], static_cast<double>(float_data[i * 3 + 1]));
+            accessor.minValues[2] = std::min(accessor.minValues[2], static_cast<double>(float_data[i * 3 + 2]));
+            accessor.maxValues[0] = std::max(accessor.maxValues[0], static_cast<double>(float_data[i * 3 + 0]));
+            accessor.maxValues[1] = std::max(accessor.maxValues[1], static_cast<double>(float_data[i * 3 + 1]));
+            accessor.maxValues[2] = std::max(accessor.maxValues[2], static_cast<double>(float_data[i * 3 + 2]));
         }
+    }
 
-        model.accessors.push_back(accessor);
-        return model.accessors.size() - 1;
-    };
+
+    model.accessors.push_back(accessor);
+    return model.accessors.size() - 1;
+};
 
     // Add vertices
     int posAccessorIndex = addBufferData(mesh->vertices.data(), mesh->vertices.size() * sizeof(point), TINYGLTF_COMPONENT_TYPE_FLOAT, TINYGLTF_TYPE_VEC3, mesh->vertices.size(), sizeof(point));
@@ -449,9 +451,6 @@ bool save_gltf(const char *filename, const TriMesh *mesh) {
     return ret;
 }
 
-
-
-
 bool read_gltf(const char *filename, TriMesh *mesh) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
@@ -493,137 +492,64 @@ bool read_gltf(const char *filename, TriMesh *mesh) {
             std::vector<Color> temp_colors;
             std::vector<TriMesh::Face> temp_faces;
 
-            // Handle Draco compressed mesh
-            if (primitive.extensions.find("KHR_draco_mesh_compression") != primitive.extensions.end()) {
-                const auto &draco_extension = primitive.extensions.at("KHR_draco_mesh_compression");
-                int bufferViewIndex = draco_extension.Get("bufferView").Get<int>();
-                const tinygltf::BufferView &bufferView = model.bufferViews[bufferViewIndex];
-                const tinygltf::Buffer &buffer = model.buffers[bufferView.buffer];
+            // Position
+            if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
+                const tinygltf::Accessor &posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
+                const tinygltf::BufferView &posView = model.bufferViews[posAccessor.bufferView];
+                const tinygltf::Buffer &posBuffer = model.buffers[posView.buffer];
 
-                draco::Decoder decoder;
-                draco::DecoderBuffer decoder_buffer;
-                decoder_buffer.Init(reinterpret_cast<const char *>(&buffer.data[bufferView.byteOffset]), bufferView.byteLength);
-                std::unique_ptr<draco::Mesh> draco_mesh = decoder.DecodeMeshFromBuffer(&decoder_buffer).value();
-
-                if (draco_mesh == nullptr) {
-                    std::cerr << "Failed to decode Draco mesh." << std::endl;
-                    return false;
-                }
-
-                // Extract vertices
-                const draco::PointAttribute *const pos_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::POSITION);
-                for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                    const draco::AttributeValueIndex val_index = pos_att->mapped_index(v);
-                    float pos[3];
-                    pos_att->GetValue(val_index, &pos[0]);
-                    temp_vertices.push_back(point(pos[0], pos[1], pos[2]));
-                }
-
-                // Extract texture coordinates
-                const draco::PointAttribute *const tex_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::TEX_COORD);
-                if (tex_att) {
-                    for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                        const draco::AttributeValueIndex val_index = tex_att->mapped_index(v);
-                        float tex[2];
-                        tex_att->GetValue(val_index, &tex[0]);
-                        temp_uvs.push_back(UV(tex[0], 1.0f - tex[1]));
-                    }
-                }
-
-                // Extract colors
-                const draco::PointAttribute *const col_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::COLOR);
-                if (col_att) {
-                    for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                        const draco::AttributeValueIndex val_index = col_att->mapped_index(v);
-                        float col[3];
-                        col_att->GetValue(val_index, &col[0]);
-                        temp_colors.push_back(Color(col[0], col[1], col[2]));
-                    }
-                } else {
-                    for (size_t i = 0; i < temp_vertices.size(); ++i) {
-                        temp_colors.push_back(Color(1.0f, 1.0f, 1.0f)); // Default color white if no color provided
-                    }
-                }
-
-                // Extract indices
-                for (draco::FaceIndex i(0); i < draco_mesh->num_faces(); ++i) {
-                    const draco::Mesh::Face &face = draco_mesh->face(i);
-                    temp_faces.push_back(TriMesh::Face(face[0].value(), face[1].value(), face[2].value()));
-                }
-            } else {
-                // Handle uncompressed mesh
-                // Position
-                if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
-                    const tinygltf::Accessor &posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
-                    const tinygltf::BufferView &posView = model.bufferViews[posAccessor.bufferView];
-                    const tinygltf::Buffer &posBuffer = model.buffers[posView.buffer];
-
-                    for (size_t i = 0; i < posAccessor.count; ++i) {
-                        float vx = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + posAccessor.byteOffset + i * 12]);
-                        float vy = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + posAccessor.byteOffset + i * 12 + 4]);
-                        float vz = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + posAccessor.byteOffset + i * 12 + 8]);
-                        temp_vertices.push_back(point(vx, vy, vz));
-                    }
-                }
-
-                // Texture coordinates
-                if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
-                    const tinygltf::Accessor &texAccessor = model.accessors[primitive.attributes.find("TEXCOORD_0")->second];
-                    const tinygltf::BufferView &texView = model.bufferViews[texAccessor.bufferView];
-                    const tinygltf::Buffer &texBuffer = model.buffers[texView.buffer];
-
-                    for (size_t i = 0; i < texAccessor.count; ++i) {
-                        float u = *reinterpret_cast<const float *>(&texBuffer.data[texView.byteOffset + texAccessor.byteOffset + i * 8]);
-                        float v = *reinterpret_cast<const float *>(&texBuffer.data[texView.byteOffset + texAccessor.byteOffset + i * 8 + 4]);
-                        temp_uvs.push_back(UV(u, 1.0f - v));
-                    }
-                }
-
-                // Colors
-                if (primitive.attributes.find("COLOR_0") != primitive.attributes.end()) {
-                    const tinygltf::Accessor &colorAccessor = model.accessors[primitive.attributes.find("COLOR_0")->second];
-                    const tinygltf::BufferView &colorView = model.bufferViews[colorAccessor.bufferView];
-                    const tinygltf::Buffer &colorBuffer = model.buffers[colorView.buffer];
-
-                    for (size_t i = 0; i < colorAccessor.count; ++i) {
-                        float r = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset + i * 16]);
-                        float g = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset + i * 16 + 4]);
-                        float b = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset + i * 16 + 8]);
-                        temp_colors.push_back(Color(r, g, b));
-                    }
-                } else {
-                    for (size_t i = 0; i < temp_vertices.size(); ++i) {
-                        temp_colors.push_back(Color(1.0f, 1.0f, 1.0f)); // Default color white if no color provided
-                    }
-                }
-
-                // Indices
-                if (primitive.indices >= 0) {
-                    const tinygltf::Accessor &indexAccessor = model.accessors[primitive.indices];
-                    const tinygltf::BufferView &indexView = model.bufferViews[indexAccessor.bufferView];
-                    const tinygltf::Buffer &indexBuffer = model.buffers[indexView.buffer];
-
-                    if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT) {
-                        for (size_t i = 0; i < indexAccessor.count; i += 3) {
-                            unsigned int v0 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2]);
-                            unsigned int v1 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2 + 2]);
-                            unsigned int v2 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2 + 4]);
-                            temp_faces.push_back(TriMesh::Face(v0, v1, v2));
-                        }
-                    } else if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT) {
-                        for (size_t i = 0; i < indexAccessor.count; i += 3) {
-                            unsigned int v0 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4]);
-                            unsigned int v1 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 4]);
-                            unsigned int v2 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 8]);
-                            temp_faces.push_back(TriMesh::Face(v0, v1, v2));
-                        }
-                    }
+                for (size_t i = 0; i < posAccessor.count; ++i) {
+                    float vx = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + i * 12]);
+                    float vy = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + i * 12 + 4]);
+                    float vz = *reinterpret_cast<const float *>(&posBuffer.data[posView.byteOffset + i * 12 + 8]);
+                    temp_vertices.push_back(point(vx, vy, vz));
                 }
             }
 
-            // Debug print the number of vertices and faces read for this object
-            std::cerr << "Number of vertices in current object: " << temp_vertices.size() << std::endl;
-            std::cerr << "Number of faces in current object: " << temp_faces.size() << std::endl;
+            // Texture coordinates
+            if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
+                const tinygltf::Accessor &texAccessor = model.accessors[primitive.attributes.find("TEXCOORD_0")->second];
+                const tinygltf::BufferView &texView = model.bufferViews[texAccessor.bufferView];
+                const tinygltf::Buffer &texBuffer = model.buffers[texView.buffer];
+
+                for (size_t i = 0; i < texAccessor.count; ++i) {
+                    float u = *reinterpret_cast<const float *>(&texBuffer.data[texView.byteOffset + i * 8]);
+                    float v = *reinterpret_cast<const float *>(&texBuffer.data[texView.byteOffset + i * 8 + 4]);
+                    temp_uvs.push_back(UV(u, 1.0f - v));
+                }
+            }
+
+            // Colors
+            if (primitive.attributes.find("COLOR_0") != primitive.attributes.end()) {
+                const tinygltf::Accessor &colorAccessor = model.accessors[primitive.attributes.find("COLOR_0")->second];
+                const tinygltf::BufferView &colorView = model.bufferViews[colorAccessor.bufferView];
+                const tinygltf::Buffer &colorBuffer = model.buffers[colorView.buffer];
+
+                for (size_t i = 0; i < colorAccessor.count; ++i) {
+                    float r = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + i * 16]);
+                    float g = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + i * 16 + 4]);
+                    float b = *reinterpret_cast<const float *>(&colorBuffer.data[colorView.byteOffset + i * 16 + 8]);
+                    temp_colors.push_back(Color(r, g, b));
+                }
+            } else {
+                for (size_t i = 0; i < temp_vertices.size(); ++i) {
+                    temp_colors.push_back(Color(1.0f, 1.0f, 1.0f)); // Default color white if no color provided
+                }
+            }
+
+            // Indices
+            if (primitive.indices >= 0) {
+                const tinygltf::Accessor &indexAccessor = model.accessors[primitive.indices];
+                const tinygltf::BufferView &indexView = model.bufferViews[indexAccessor.bufferView];
+                const tinygltf::Buffer &indexBuffer = model.buffers[indexView.buffer];
+
+                for (size_t i = 0; i < indexAccessor.count; i += 3) {
+                    unsigned int v0 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + i * 4]);
+                    unsigned int v1 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + i * 4 + 4]);
+                    unsigned int v2 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + i * 4 + 8]);
+                    temp_faces.push_back(TriMesh::Face(v0, v1, v2));
+                }
+            }
 
             // Assign collected data to the mesh
             size_t vertex_start_index = mesh->vertices.size();
@@ -636,31 +562,11 @@ bool read_gltf(const char *filename, TriMesh *mesh) {
         }
     }
 
-    // Process images
-    for (const auto &image : model.images) {
-        TriMesh::Texture texture;
-        texture.uri = image.uri;
-        texture.imageData = image.image;
-        texture.width = image.width;
-        texture.height = image.height;
-        texture.components = image.component;
-
-        int texture_index = mesh->textures.size();
-        mesh->textures[texture_index] = texture;
-    }
-
-    // Save the model to a GLB file
-    save_gltf("output.glb", mesh);
-
-    // Write to obj
-    if (!mesh->write("output.obj")) {
-        std::cerr << "Failed to write obj file" << std::endl;
-    }
+	save_gltf("output.glb", mesh);
 
     std::cerr << "GLTF file processed successfully: " << filename << std::endl;
     return true;
 }
-
 
 
 // Read a ply file
@@ -2126,7 +2032,6 @@ static bool write_obj(TriMesh *mesh, FILE *f, bool write_norm)
 }
 
 
-
 // Write a off file
 static bool write_off(TriMesh *mesh, FILE *f)
 {
@@ -2489,7 +2394,6 @@ static bool write_faces_asc(TriMesh *mesh, FILE *f,
 	}
 	return true;
 }
-
 
 
 // Write a bunch of faces to a binary file

@@ -8,6 +8,11 @@ TriMesh.h
 Class for triangle meshes.
 */
 
+#include "UV.h"
+#include "Material.h"
+#include <vector>
+#include <map>
+
 #include "Vec.h"
 #include "Box.h"
 #include "Color.h"
@@ -62,6 +67,19 @@ public:
 	//
 	// Members
 	//
+
+	// custom
+	std::vector<UV> uvs;
+    // New property for storing textures
+    struct Texture {
+        std::string uri;
+        std::vector<unsigned char> imageData;
+        int width;
+        int height;
+        int components;
+    };
+
+    std::map<int, Texture> textures;
 
 	// The basics: vertices and faces
 	::std::vector<point> vertices;
@@ -179,6 +197,21 @@ public:
 	bool write(const char *filename);
 	bool write(const ::std::string &filename);
 
+    // Method to debug print mesh info
+    void print_debug_info() const {
+        std::cout << "Number of vertices: " << vertices.size() << std::endl;
+        std::cout << "Number of uvs: " << uvs.size() << std::endl;
+        std::cout << "Number of colors: " << colors.size() << std::endl;
+        std::cout << "Number of faces: " << faces.size() << std::endl;
+        std::cout << "Number of textures: " << textures.size() << std::endl;
+
+        for (const auto& [key, texture] : textures) {
+            std::cout << "Texture URI: " << texture.uri << std::endl;
+            std::cout << "Texture size: " << texture.imageData.size() << " bytes" << std::endl;
+            std::cout << "Texture dimensions: " << texture.width << "x" << texture.height << std::endl;
+            std::cout << "Texture components: " << texture.components << std::endl;
+        }
+    }
 
 	//
 	// Useful queries
@@ -246,6 +279,8 @@ public:
 	//
 	// Debugging
 	//
+
+	
 
 	// Debugging printout, controllable by a "verbose"ness parameter
 	static int verbose;

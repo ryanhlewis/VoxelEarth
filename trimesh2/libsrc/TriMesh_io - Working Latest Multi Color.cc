@@ -17,9 +17,8 @@ Can write: PLY (triangle mesh, range grid), OFF, OBJ, RAY, SM, STL, PTS, C++, DA
 #include <map>
 
 // include draco for mesh compression
-#include "draco_features.h" // Use this if the build directory is included in INCLUDES
-#include "compression/decode.h" // Use this if the src directory is included in INCLUDES
-
+#include "draco/draco_features.h"
+#include "draco/compression/decode.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION

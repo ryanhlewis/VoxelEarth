@@ -1,6 +1,6 @@
 DESTDIR = ../bin.$(UNAME)
-INCLUDES = -I../include -I.
-LIBDIR = -L../lib.$(UNAME)
+INCLUDES = -I../include -I. -I~/draco/src
+LIBDIR = -L../lib.$(UNAME) -L~/draco/build
 
 include ../Makerules
 
@@ -29,21 +29,19 @@ PROGS = $(OTHERPROGS) $(VIEWPROG)
 
 default: $(PROGS)
 
+LIBS += -ltrimesh -ldraco
+$(PROGS): LIBS += -ltrimesh -ldraco
 
-LIBS += -ltrimesh
-$(PROGS) : -ltrimesh
-
-$(VIEWPROG) : $(VIEWOFILES)
+$(VIEWPROG): $(VIEWOFILES)
 	$(LINK) $(GLLIBS)
 
-$(OTHERPROGS) : $(DESTDIR)/%$(EXE) : $(OBJDIR)/%.o
+$(OTHERPROGS): $(DESTDIR)/%$(EXE) : $(OBJDIR)/%.o
 	$(LINK)
 
-clean :
+clean:
 	-rm -f $(OBJDIR)/*.o $(OBJDIR)/*.d
 	-rmdir $(OBJDIR)
 
-spotless : clean
+spotless: clean
 	-rm -f $(PROGS)
 	-rmdir $(DESTDIR)
-

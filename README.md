@@ -68,25 +68,48 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 ### Developing
 **CPU Voxelization:**\
-We'll focus on CPU voxelization for now, as it's the most straightforward method to get started.
+There's not really a huge need to develop for CPU voxelization, as it is mostly already worked out by Lucas Dower and his team with [ObjToSchematic](). If anything is wrong with this implementation, it's likely with our integration on their work.
 1. **Install Dependencies**: First, set up ObjToSchematic by performing the following steps.
    ```bash
    cd ObjToSchematic
    npm install
-   cd ..
-   cd tiles3d-demo
-   npm install
    ```
-...
+2. **Run test voxelizer**: Use our single-file voxelizer to debug and test voxelization.
+   ```bash
+   node voxelize.js myfile.glb cpu
+   ```
+If there's any problems with the voxelization that need to be fixed, the following files are likely the culprits:
+
+[**magic.js**](ObjToSchematic/magic.js): Aptly named, this is a node-fixing script for the 3D Tiles format that properly scales, rotates, and copies all original attributes from the 3D Tile to the voxelized GLB. GLB Extension issues (Draco, Unlit), rotation, and scaling issues will be found here.
+
+[**convertToGLB.js**](ObjToSchematic/src/convertToGLB.js): This file is where we export from ObjToSchematic's voxel format into a GLB object by reconstructing each voxel. Texture or color issues and any voxelization issues will be found here.
+
 
 **GPU Voxelization:**\
-For GPU voxelization, you'll need to install the CUDA toolkit and ensure your system has a NVIDIA GPU.
-1. **Install Dependencies**: First, set up cuda_voxelizer by performing the following steps.
+*(Currently Linux-only / WSL2)*\
+For GPU voxelization, you'll need to install the CUDA toolkit and ensure your system has a NVIDIA GPU. We recommend [WSL2 copy-paste commands from NVIDIA](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local).
+1. **Install Dependencies**: First, create a [Google Draco](https://github.com/google/draco) build for compression:
    ```bash
-   (cmake/make installation todo)
-   ...
-   cd cuda_voxelizer
-   ...
+   cd ~
+   git clone https://github.com/google/draco.git
+   cd draco
+   mkdir build
+   cd build
+   cmake ..
+   make
+   ```
+   
+1. **Trimesh2**: First, we have to set up the primary dependency of cuda_voxelizer:
+   ```bash
+   cd trimesh2
+   ./copyFiles.sh
+   ```
+   You may have to `sudo chmod +x copyFiles.sh`. It's just a script to automatically build and copy Trimesh2 files directly for cuda_voxelizer.
+
+1. **cuda_voxelizer**: Finally, to set up our GPU voxelizer, follow these steps:
+   ```bash
+   cd cuda_voxelizer/build
+   ./build.sh
    ```
 ### Included Libraries
 This project includes modified versions of the following libraries:

@@ -17,9 +17,8 @@ Can write: PLY (triangle mesh, range grid), OFF, OBJ, RAY, SM, STL, PTS, C++, DA
 #include <map>
 
 // include draco for mesh compression
-#include "draco_features.h" // Use this if the build directory is included in INCLUDES
-#include "compression/decode.h" // Use this if the src directory is included in INCLUDES
-
+#include "draco/draco_features.h"
+#include "draco/compression/decode.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -449,9 +448,6 @@ bool save_gltf(const char *filename, const TriMesh *mesh) {
     return ret;
 }
 
-
-
-
 bool read_gltf(const char *filename, TriMesh *mesh) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
@@ -485,73 +481,19 @@ bool read_gltf(const char *filename, TriMesh *mesh) {
 
     std::cerr << "GLTF file loaded successfully: " << filename << std::endl;
 
-    for (const auto &gltfMesh : model.meshes) {
-        std::cerr << "Processing mesh: " << gltfMesh.name << std::endl;
-        for (const auto &primitive : gltfMesh.primitives) {
-            std::vector<point> temp_vertices;
-            std::vector<UV> temp_uvs;
-            std::vector<Color> temp_colors;
-            std::vector<TriMesh::Face> temp_faces;
+    // Helper function to process each node recursively
+    std::function<void(int)> processNode = [&](int nodeIdx) {
+        const tinygltf::Node &node = model.nodes[nodeIdx];
+        if (node.mesh >= 0) {
+            const tinygltf::Mesh &gltfMesh = model.meshes[node.mesh];
+            std::cerr << "Processing mesh: " << gltfMesh.name << std::endl;
 
-            // Handle Draco compressed mesh
-            if (primitive.extensions.find("KHR_draco_mesh_compression") != primitive.extensions.end()) {
-                const auto &draco_extension = primitive.extensions.at("KHR_draco_mesh_compression");
-                int bufferViewIndex = draco_extension.Get("bufferView").Get<int>();
-                const tinygltf::BufferView &bufferView = model.bufferViews[bufferViewIndex];
-                const tinygltf::Buffer &buffer = model.buffers[bufferView.buffer];
+            for (const auto &primitive : gltfMesh.primitives) {
+                std::vector<point> temp_vertices;
+                std::vector<UV> temp_uvs;
+                std::vector<Color> temp_colors;
+                std::vector<TriMesh::Face> temp_faces;
 
-                draco::Decoder decoder;
-                draco::DecoderBuffer decoder_buffer;
-                decoder_buffer.Init(reinterpret_cast<const char *>(&buffer.data[bufferView.byteOffset]), bufferView.byteLength);
-                std::unique_ptr<draco::Mesh> draco_mesh = decoder.DecodeMeshFromBuffer(&decoder_buffer).value();
-
-                if (draco_mesh == nullptr) {
-                    std::cerr << "Failed to decode Draco mesh." << std::endl;
-                    return false;
-                }
-
-                // Extract vertices
-                const draco::PointAttribute *const pos_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::POSITION);
-                for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                    const draco::AttributeValueIndex val_index = pos_att->mapped_index(v);
-                    float pos[3];
-                    pos_att->GetValue(val_index, &pos[0]);
-                    temp_vertices.push_back(point(pos[0], pos[1], pos[2]));
-                }
-
-                // Extract texture coordinates
-                const draco::PointAttribute *const tex_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::TEX_COORD);
-                if (tex_att) {
-                    for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                        const draco::AttributeValueIndex val_index = tex_att->mapped_index(v);
-                        float tex[2];
-                        tex_att->GetValue(val_index, &tex[0]);
-                        temp_uvs.push_back(UV(tex[0], 1.0f - tex[1]));
-                    }
-                }
-
-                // Extract colors
-                const draco::PointAttribute *const col_att = draco_mesh->GetNamedAttribute(draco::GeometryAttribute::COLOR);
-                if (col_att) {
-                    for (draco::PointIndex v(0); v < draco_mesh->num_points(); ++v) {
-                        const draco::AttributeValueIndex val_index = col_att->mapped_index(v);
-                        float col[3];
-                        col_att->GetValue(val_index, &col[0]);
-                        temp_colors.push_back(Color(col[0], col[1], col[2]));
-                    }
-                } else {
-                    for (size_t i = 0; i < temp_vertices.size(); ++i) {
-                        temp_colors.push_back(Color(1.0f, 1.0f, 1.0f)); // Default color white if no color provided
-                    }
-                }
-
-                // Extract indices
-                for (draco::FaceIndex i(0); i < draco_mesh->num_faces(); ++i) {
-                    const draco::Mesh::Face &face = draco_mesh->face(i);
-                    temp_faces.push_back(TriMesh::Face(face[0].value(), face[1].value(), face[2].value()));
-                }
-            } else {
-                // Handle uncompressed mesh
                 // Position
                 if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
                     const tinygltf::Accessor &posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
@@ -603,63 +545,58 @@ bool read_gltf(const char *filename, TriMesh *mesh) {
                     const tinygltf::BufferView &indexView = model.bufferViews[indexAccessor.bufferView];
                     const tinygltf::Buffer &indexBuffer = model.buffers[indexView.buffer];
 
-                    if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT) {
-                        for (size_t i = 0; i < indexAccessor.count; i += 3) {
-                            unsigned int v0 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2]);
-                            unsigned int v1 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2 + 2]);
-                            unsigned int v2 = *reinterpret_cast<const unsigned short *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 2 + 4]);
-                            temp_faces.push_back(TriMesh::Face(v0, v1, v2));
-                        }
-                    } else if (indexAccessor.componentType == TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT) {
-                        for (size_t i = 0; i < indexAccessor.count; i += 3) {
-                            unsigned int v0 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4]);
-                            unsigned int v1 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 4]);
-                            unsigned int v2 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 8]);
-                            temp_faces.push_back(TriMesh::Face(v0, v1, v2));
-                        }
+                    for (size_t i = 0; i < indexAccessor.count; i += 3) {
+                        unsigned int v0 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4]);
+                        unsigned int v1 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 4]);
+                        unsigned int v2 = *reinterpret_cast<const unsigned int *>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset + i * 4 + 8]);
+                        temp_faces.push_back(TriMesh::Face(v0, v1, v2));
                     }
                 }
-            }
 
-            // Debug print the number of vertices and faces read for this object
-            std::cerr << "Number of vertices in current object: " << temp_vertices.size() << std::endl;
-            std::cerr << "Number of faces in current object: " << temp_faces.size() << std::endl;
+                // Debug print the number of vertices and faces read for this object
+                std::cerr << "Number of vertices in current object: " << temp_vertices.size() << std::endl;
+                std::cerr << "Number of faces in current object: " << temp_faces.size() << std::endl;
 
-            // Assign collected data to the mesh
-            size_t vertex_start_index = mesh->vertices.size();
-            mesh->vertices.insert(mesh->vertices.end(), temp_vertices.begin(), temp_vertices.end());
-            mesh->uvs.insert(mesh->uvs.end(), temp_uvs.begin(), temp_uvs.end());
-            mesh->colors.insert(mesh->colors.end(), temp_colors.begin(), temp_colors.end());
-            for (const auto &face : temp_faces) {
-                mesh->faces.push_back(TriMesh::Face(face[0] + vertex_start_index, face[1] + vertex_start_index, face[2] + vertex_start_index));
+                // Assign collected data to the mesh
+                size_t vertex_start_index = mesh->vertices.size();
+                mesh->vertices.insert(mesh->vertices.end(), temp_vertices.begin(), temp_vertices.end());
+                mesh->uvs.insert(mesh->uvs.end(), temp_uvs.begin(), temp_uvs.end());
+                mesh->colors.insert(mesh->colors.end(), temp_colors.begin(), temp_colors.end());
+                for (const auto &face : temp_faces) {
+                    mesh->faces.push_back(TriMesh::Face(face[0] + vertex_start_index, face[1] + vertex_start_index, face[2] + vertex_start_index));
+                }
             }
+        }
+
+        // Process child nodes
+        for (const auto &child : node.children) {
+            processNode(child);
+        }
+    };
+
+    // Process all nodes in all scenes
+    for (const auto &scene : model.scenes) {
+        for (const auto &node : scene.nodes) {
+            processNode(node);
         }
     }
 
-    // Process images
-    for (const auto &image : model.images) {
-        TriMesh::Texture texture;
-        texture.uri = image.uri;
-        texture.imageData = image.image;
-        texture.width = image.width;
-        texture.height = image.height;
-        texture.components = image.component;
-
-        int texture_index = mesh->textures.size();
-        mesh->textures[texture_index] = texture;
+    if (mesh->vertices.empty()) {
+        std::cerr << "Empty mesh - nothing to write." << std::endl;
+        return false;
     }
 
-    // Save the model to a GLB file
-    save_gltf("output.glb", mesh);
-
-    // Write to obj
     if (!mesh->write("output.obj")) {
-        std::cerr << "Failed to write obj file" << std::endl;
+        std::cerr << "Failed to write GLTF to output.obj" << std::endl;
+        return false;
     }
+
+	save_gltf("output.glb", mesh);
 
     std::cerr << "GLTF file processed successfully: " << filename << std::endl;
     return true;
 }
+
 
 
 
