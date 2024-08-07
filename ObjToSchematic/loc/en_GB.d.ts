@@ -1,0 +1,185 @@
+export declare const en_GB: {
+    display_name: string;
+    language_code: string;
+    translations: {
+        something_went_wrong: string;
+        description: string;
+        init: {
+            initialising: string;
+            ready: string;
+        };
+        settings: {
+            heading: string;
+            components: {
+                language: string;
+                overrideHeight: string;
+            };
+            changing_language: string;
+            changed_language: string;
+        };
+        import: {
+            heading: string;
+            button: string;
+            importing_mesh: string;
+            imported_mesh: string;
+            rendering_mesh: string;
+            rendered_mesh: string;
+            no_vertices_loaded: string;
+            no_triangles_loaded: string;
+            could_not_scale_mesh: string;
+            invalid_encoding: string;
+            invalid_face_data: string;
+            too_many_triangles: string;
+            vertex_triangle_count: string;
+            missing_normals: string;
+            failed_to_parse_line: string;
+            gltf_experimental: string;
+            unsupported_image_type: string;
+            components: {
+                input: string;
+                no_file_chosen: string;
+                rotation: string;
+            };
+        };
+        materials: {
+            heading: string;
+            button: string;
+            updating_materials: string;
+            updated_materials: string;
+            components: {
+                no_materials_loaded: string;
+                material_type: string;
+                solid: string;
+                textured: string;
+                no_image_loaded: string;
+                choose: string;
+                texture_filtering: string;
+                texture_wrap: string;
+                transparency: string;
+                diffuse_map: string;
+                alpha: string;
+                alpha_map: string;
+                alpha_channel: string;
+                linear: string;
+                nearest: string;
+                clamp: string;
+                repeat: string;
+                none: string;
+                alpha_constant: string;
+                diffuse_map_alpha_channel: string;
+            };
+        };
+        voxelise: {
+            heading: string;
+            button: string;
+            loading_voxel_mesh: string;
+            loaded_voxel_mesh: string;
+            rendering_voxel_mesh: string;
+            rendered_voxel_mesh: string;
+            voxel_count: string;
+            voxel_mesh_dimensions: string;
+            components: {
+                constraint_axis: string;
+                size: string;
+                algorithm: string;
+                ambient_occlusion: string;
+                multisampling: string;
+                voxel_overlap: string;
+                colour: string;
+                x_axis: string;
+                y_axis: string;
+                z_axis: string;
+                ray_based: string;
+                bvh_ray: string;
+                ncrb: string;
+                average_recommended: string;
+                first: string;
+                on_recommended: string;
+                off_faster: string;
+            };
+        };
+        assign: {
+            heading: string;
+            button: string;
+            loading_block_mesh: string;
+            loaded_block_mesh: string;
+            rendering_block_mesh: string;
+            rendered_block_mesh: string;
+            deselected_blocks: string;
+            selected_blocks: string;
+            found_blocks: string;
+            block_not_namespaced: string;
+            could_not_use_block: string;
+            reading_palette: string;
+            block_palette_missing_light_blocks: string;
+            blocks_missing_textures: string;
+            falling_blocks: string;
+            components: {
+                texture_atlas: string;
+                block_palette: string;
+                dithering: string;
+                dithering_magnitude: string;
+                fallable_blocks: string;
+                colour_accuracy: string;
+                smart_averaging: string;
+                smoothness: string;
+                calculate_lighting: string;
+                light_threshold: string;
+                vanilla: string;
+                ordered: string;
+                random: string;
+                off: string;
+                replace_falling: string;
+                replace_fallable: string;
+                do_nothing: string;
+                search: string;
+            };
+        };
+        export: {
+            heading: string;
+            button: string;
+            exporting_structure: string;
+            exported_structure: string;
+            schematic_unsupported_blocks: string;
+            nbt_exporter_too_big: string;
+            components: {
+                exporter: string;
+                litematic: string;
+                schematic: string;
+                sponge_schematic: string;
+                structure_blocks: string;
+                indexed_json: string;
+                uncompressed_json: string;
+            };
+        };
+        misc: {
+            red: string;
+            green: string;
+            blue: string;
+            alpha: string;
+            on: string;
+            off: string;
+            advanced_settings: string;
+        };
+        toolbar: {
+            view_mesh: string;
+            view_voxel_mesh: string;
+            view_block_mesh: string;
+            toggle_grid: string;
+            toggle_axes: string;
+            toggle_night_vision: string;
+            toggle_slice_viewer: string;
+            decrement_slice: string;
+            increment_slice: string;
+            zoom_in: string;
+            zoom_out: string;
+            reset_camera: string;
+            perspective_camera: string;
+            orthographic_camera: string;
+            open_github_repo: string;
+            open_github_issues: string;
+            join_discord: string;
+            kofi_donate: string;
+        };
+    };
+};

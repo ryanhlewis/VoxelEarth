@@ -1,0 +1,37 @@
+import { RGBA } from './colour';
+export declare class AppConfig {
+    private static _instance;
+    static get Get(): AppConfig;
+    readonly RELEASE_MODE: any;
+    readonly MAJOR_VERSION = 0;
+    readonly MINOR_VERSION = 8;
+    readonly HOTFIX_VERSION = 9;
+    readonly VERSION_TYPE: 'd' | 'a' | 'r';
+    readonly MINECRAFT_VERSION = "1.20.1";
+    readonly LOCALE = "en-GB";
+    readonly VOXEL_BUFFER_CHUNK_SIZE = 50000;
+    readonly AMBIENT_OCCLUSION_OVERRIDE_CORNER = true;
+    readonly USE_WORKER_THREAD = true;
+    readonly MULTISAMPLE_COUNT = 16;
+    readonly ALPHA_BIAS = 1;
+    readonly ANGLE_SNAP_RADIUS_DEGREES = 10;
+    readonly RENDER_TRIANGLE_THRESHOLD = 1000000;
+    readonly MAXIMUM_IMAGE_MEM_ALLOC = 2048;
+    readonly CAMERA_FOV_DEGREES = 30;
+    readonly CAMERA_MINIMUM_DISTANCE = 0.125;
+    readonly CAMERA_DEFAULT_DISTANCE_UNITS = 4;
+    readonly CAMERA_DEFAULT_AZIMUTH_RADIANS = -1;
+    readonly CAMERA_DEFAULT_ELEVATION_RADIANS = 1.3;
+    readonly CAMERA_SENSITIVITY_ROTATION = 0.005;
+    readonly CAMERA_SENSITIVITY_ZOOM = 0.0025;
+    readonly CONSTRAINT_MINIMUM_HEIGHT = 3;
+    CONSTRAINT_MAXIMUM_HEIGHT: number;
+    readonly SMOOTHNESS_MAX = 3;
+    readonly CAMERA_SMOOTHING = 1;
+    readonly VIEWPORT_BACKGROUND_COLOUR: RGBA;
+    readonly FRESNEL_EXPONENT = 3;
+    readonly FRESNEL_MIX = 0.3;
+    private constructor();
+    dumpConfig(): void;
+    getVersionString(): string;
+}
