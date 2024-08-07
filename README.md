@@ -99,18 +99,35 @@ For GPU voxelization, you'll need to install the CUDA toolkit and ensure your sy
    make
    ```
    
-1. **Trimesh2**: First, we have to set up the primary dependency of cuda_voxelizer:
+2. **Trimesh2**: First, we have to set up the primary dependency of cuda_voxelizer:
    ```bash
    cd trimesh2
    ./copyFiles.sh
    ```
    You may have to `sudo chmod +x copyFiles.sh`. It's just a script to automatically build and copy Trimesh2 files directly for cuda_voxelizer.
 
-1. **cuda_voxelizer**: Finally, to set up our GPU voxelizer, follow these steps:
+3. **cuda_voxelizer**: Finally, to set up our GPU voxelizer, follow these steps:
    ```bash
    cd cuda_voxelizer/build
    ./build.sh
    ```
+   This will build the voxelizer and place it in the `cuda_voxelizer/build` directory. If you have any issues building, you may need to adjust the `build.sh` file to reference your correct CUDA architecture (60, 70, 80, 90, etc).
+
+4. **Run test voxelizer**: Use the produced binary to debug and test voxelization.
+   ```bash
+   ./cuda_voxelizer -f myfile.glb -s 64 -o glb
+   # Or, if you want to try out JSON for Minecraft
+   ./cuda_voxelizer -f myfile.glb -s 64 -o json
+   ```
+
+If there's any problems with the voxelization that need to be fixed, the following files are likely the culprits:
+   
+   [**voxelize.cu**](cuda_voxelizer/src/voxelize.cu): This is the main CUDA shader file that handles the voxelization and color assignment process. It is passed variables from [**main.cpp**](cuda_voxelizer/src/main.cpp). Any issues with the voxelization or textures will be found here. "Segmentation faults" will always be found here. 
+   
+   [**util_io.cpp**](cuda_voxelizer/src/util_io.cpp): This is the export script for the voxelizer. Any issues with exporting the voxelized GLB will be found here as well as any future support for other formats like Minecraft JSON or Schematic.
+
+   [**TriMesh_io.cc**](trimesh2/libsrc/TriMesh_io.cc): Our ad-hoc implementation of importing GLTF files and extracting their textures into the voxelizer. Any issues with the GLTF format or importing will be found here.
+
 ### Included Libraries
 This project includes modified versions of the following libraries:
 

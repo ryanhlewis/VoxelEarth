@@ -1,5 +1,16 @@
 #include "util_io.h"
 
+
+// #define TINYGLTF_IMPLEMENTATION
+// #define STB_IMAGE_IMPLEMENTATION
+// #define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <tiny_gltf.h>
+#include <draco/compression/encode.h>
+#include <draco/mesh/mesh.h>
+
+#include <map>
+#include <json.hpp> // For JSON serialization
+
 using namespace std;
 
 // helper function to get file length (in number of ASCII characters)
@@ -246,40 +257,431 @@ void write_binvox(const unsigned int* vtable, const voxinfo v_info, const std::s
 }
 
 // Experimental MagicaVoxel file format output
-void write_vox(const unsigned int* vtable, const voxinfo v_info, const std::string base_filename) {
-	string filename_output = base_filename + string("_") + to_string(v_info.gridsize.x) + string(".vox");
-	vox::VoxWriter voxwriter;
-	voxwriter.AddColor(255, 255, 255,0, 0);
+// Experimental MagicaVoxel file format output
+void write_vox(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".vox";
+    vox::VoxWriter voxwriter;
+    
+    // Initialize color index mapping
+    std::map<uint32_t, uint8_t> color_map;
+    uint8_t current_color_index = 1; // Start from 1 because 0 is reserved
 
 #ifndef SILENT
-	fprintf(stdout, "[I/O] Writing data in vox format to %s \n", filename_output.c_str());
+    fprintf(stdout, "[I/O] Writing data in vox format to %s \n", filename_output.c_str());
 
-	// Write stats
-	size_t voxels_seen = 0;
-	const size_t write_stats_25 = (size_t(v_info.gridsize.x) * size_t(v_info.gridsize.y) * size_t(v_info.gridsize.z)) / 4.0f;
-	fprintf(stdout, "[I/O] Writing to file: 0%%...");
-	size_t voxels_written = 0;
+    // Write stats
+    size_t voxels_seen = 0;
+    const size_t write_stats_25 = (size_t(v_info.gridsize.x) * size_t(v_info.gridsize.y) * size_t(v_info.gridsize.z)) / 4.0f;
+    fprintf(stdout, "[I/O] Writing to file: 0%%...");
+    size_t voxels_written = 0;
 #endif
 
-	for (size_t x = 0; x < v_info.gridsize.x; x++) {
-		for (size_t y = 0; y < v_info.gridsize.z; y++) {
-			for (size_t z = 0; z < v_info.gridsize.y; z++) {
+    for (size_t x = 0; x < v_info.gridsize.x; x++) {
+        for (size_t y = 0; y < v_info.gridsize.y; y++) {
+            for (size_t z = 0; z < v_info.gridsize.z; z++) {
 #ifndef SILENT
-				// Progress stats
-				voxels_seen++;
-				if (voxels_seen == write_stats_25) { fprintf(stdout, "25%%..."); }
-				else if (voxels_seen == write_stats_25 * size_t(2)) { fprintf(stdout, "50%%..."); }
-				else if (voxels_seen == write_stats_25 * size_t(3)) { fprintf(stdout, "75%%..."); }
+                // Progress stats
+                voxels_seen++;
+                if (voxels_seen == write_stats_25) { fprintf(stdout, "25%%..."); }
+                else if (voxels_seen == write_stats_25 * size_t(2)) { fprintf(stdout, "50%%..."); }
+                else if (voxels_seen == write_stats_25 * size_t(3)) { fprintf(stdout, "75%%..."); }
 #endif
-				if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-					// Somehow, this makes the vox model come out correct way up. Some axes probably got switched along the way
-					voxwriter.AddVoxel(x, -z + v_info.gridsize.z, y, 1);
-				}
-			}
-		}
+                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
+                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
+                    uchar4 color = color_table[voxel_index];
+
+                    // Pack color into a single uint32_t
+                    uint32_t packed_color = (color.x << 24) | (color.y << 16) | (color.z << 8) | color.w;
+
+                    // Check if color already has an index
+                    if (color_map.find(packed_color) == color_map.end()) {
+                        // New color, assign a new index
+                        voxwriter.AddColor(color.x, color.y, color.z, color.w, current_color_index);
+                        color_map[packed_color] = current_color_index;
+                        current_color_index++;
+                    }
+
+                    uint8_t color_index = color_map[packed_color];
+
+                    // Add voxel with color index
+                    voxwriter.AddVoxel(x, -z + v_info.gridsize.z, y, color_index);
+                }
+            }
+        }
+    }
+#ifndef SILENT
+    fprintf(stdout, "100%% \n");
+#endif
+    voxwriter.SaveToFile(filename_output);
+}
+
+
+
+void write_gltf(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".glb";
+    tinygltf::Model model;
+    tinygltf::TinyGLTF gltf;
+
+    std::vector<float> positions;
+    std::vector<uint8_t> colors;
+    std::vector<uint16_t> indices16;
+    std::vector<uint32_t> indices32;
+
+    bool use_uint32 = false;
+    size_t estimated_vertices = v_info.gridsize.x * v_info.gridsize.y * v_info.gridsize.z * 8;
+    if (estimated_vertices > 65535) {
+        use_uint32 = true;
+    }
+
+    uint32_t index = 0;
+    const float voxel_size = 1.0f; // Define a consistent voxel size
+
+    // Define the vertex positions for a unit cube
+    const float cube_vertices[8][3] = {
+        {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+        {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}
+    };
+
+    // Define the indices for the 12 triangles of a cube (2 triangles per face)
+    const uint16_t cube_indices[36] = {
+        0, 2, 1, 0, 3, 2, // Front face
+        1, 6, 5, 1, 2, 6, // Right face
+        5, 7, 4, 5, 6, 7, // Back face
+        4, 3, 0, 4, 7, 3, // Left face
+        3, 6, 2, 3, 7, 6, // Top face
+        4, 1, 5, 4, 0, 1  // Bottom face
+    };
+
+
+
+    for (size_t x = 0; x < v_info.gridsize.x; x++) {
+        for (size_t y = 0; y < v_info.gridsize.y; y++) {
+            for (size_t z = 0; z < v_info.gridsize.z; z++) {
+                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
+                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
+                    uchar4 color = color_table[voxel_index];
+
+                    for (int v = 0; v < 8; ++v) {
+                        positions.push_back(static_cast<float>(x) + cube_vertices[v][0] * voxel_size);
+                        positions.push_back(static_cast<float>(y) + cube_vertices[v][1] * voxel_size);
+                        positions.push_back(static_cast<float>(z) + cube_vertices[v][2] * voxel_size);
+
+                        colors.push_back(color.x);
+                        colors.push_back(color.y);
+                        colors.push_back(color.z);
+                        colors.push_back(255);  // Ensure full opacity
+                    }
+
+                    for (int i = 0; i < 36; ++i) {
+                        if (use_uint32) {
+                            indices32.push_back(index + cube_indices[i]);
+                        } else {
+                            indices16.push_back(index + cube_indices[i]);
+                        }
+                    }
+                    index += 8;
+                }
+            }
+        }
+    }
+
+    // Create a buffer
+    size_t buffer_size = positions.size() * sizeof(float) + colors.size() * sizeof(uint8_t);
+    if (use_uint32) {
+        buffer_size += indices32.size() * sizeof(uint32_t);
+    } else {
+        buffer_size += indices16.size() * sizeof(uint16_t);
+    }
+
+    tinygltf::Buffer buffer;
+    buffer.data.resize(buffer_size);
+
+    size_t offset = 0;
+    memcpy(buffer.data.data() + offset, positions.data(), positions.size() * sizeof(float));
+    offset += positions.size() * sizeof(float);
+    memcpy(buffer.data.data() + offset, colors.data(), colors.size() * sizeof(uint8_t));
+    offset += colors.size() * sizeof(uint8_t);
+    if (use_uint32) {
+        memcpy(buffer.data.data() + offset, indices32.data(), indices32.size() * sizeof(uint32_t));
+    } else {
+        memcpy(buffer.data.data() + offset, indices16.data(), indices16.size() * sizeof(uint16_t));
+    }
+
+    model.buffers.push_back(buffer);
+
+    // Create buffer views
+    tinygltf::BufferView posBufferView;
+    posBufferView.buffer = 0;
+    posBufferView.byteOffset = 0;
+    posBufferView.byteLength = positions.size() * sizeof(float);
+    posBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(posBufferView);
+
+    tinygltf::BufferView colorBufferView;
+    colorBufferView.buffer = 0;
+    colorBufferView.byteOffset = posBufferView.byteLength;
+    colorBufferView.byteLength = colors.size() * sizeof(uint8_t);
+    colorBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(colorBufferView);
+
+    tinygltf::BufferView indexBufferView;
+    indexBufferView.buffer = 0;
+    indexBufferView.byteOffset = posBufferView.byteLength + colorBufferView.byteLength;
+    if (use_uint32) {
+        indexBufferView.byteLength = indices32.size() * sizeof(uint32_t);
+        indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+        model.bufferViews.push_back(indexBufferView);
+    } else {
+        indexBufferView.byteLength = indices16.size() * sizeof(uint16_t);
+        indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+        model.bufferViews.push_back(indexBufferView);
+    }
+
+    // Create accessors
+    tinygltf::Accessor posAccessor;
+    posAccessor.bufferView = 0;
+    posAccessor.byteOffset = 0;
+    posAccessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+    posAccessor.count = positions.size() / 3;
+    posAccessor.type = TINYGLTF_TYPE_VEC3;
+
+	posAccessor.minValues = {positions[0], positions[1], positions[2]};
+	posAccessor.maxValues = {positions[0], positions[1], positions[2]};
+	for (size_t i = 3; i < positions.size(); i += 3) {
+		if (positions[i] < posAccessor.minValues[0]) posAccessor.minValues[0] = positions[i];
+		if (positions[i + 1] < posAccessor.minValues[1]) posAccessor.minValues[1] = positions[i + 1];
+		if (positions[i + 2] < posAccessor.minValues[2]) posAccessor.minValues[2] = positions[i + 2];
+		if (positions[i] > posAccessor.maxValues[0]) posAccessor.maxValues[0] = positions[i];
+		if (positions[i + 1] > posAccessor.maxValues[1]) posAccessor.maxValues[1] = positions[i + 1];
+		if (positions[i + 2] > posAccessor.maxValues[2]) posAccessor.maxValues[2] = positions[i + 2];
 	}
-#ifndef SILENT
-	fprintf(stdout, "100%% \n");
-#endif
-	voxwriter.SaveToFile(filename_output);
+
+    model.accessors.push_back(posAccessor);
+
+    tinygltf::Accessor colorAccessor;
+    colorAccessor.bufferView = 1;
+    colorAccessor.byteOffset = 0;
+    colorAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+    colorAccessor.count = colors.size() / 4;
+    colorAccessor.type = TINYGLTF_TYPE_VEC4;
+    colorAccessor.normalized = true;
+    model.accessors.push_back(colorAccessor);
+
+    tinygltf::Accessor indexAccessor;
+    indexAccessor.bufferView = 2;
+    indexAccessor.byteOffset = 0;
+    if (use_uint32) {
+        indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+        indexAccessor.count = indices32.size();
+    } else {
+        indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+        indexAccessor.count = indices16.size();
+    }
+    indexAccessor.type = TINYGLTF_TYPE_SCALAR;
+    model.accessors.push_back(indexAccessor);
+
+    // Create a primitive
+    tinygltf::Primitive primitive;
+    primitive.attributes["POSITION"] = 0;
+    primitive.attributes["COLOR_0"] = 1;
+    primitive.indices = 2;
+    primitive.mode = TINYGLTF_MODE_TRIANGLES;
+
+    // Create a mesh
+    tinygltf::Mesh mesh;
+    mesh.primitives.push_back(primitive);
+
+    // Create a node
+    tinygltf::Node node;
+    node.mesh = model.meshes.size();
+    model.nodes.push_back(node);
+
+    // Add mesh to model
+    model.meshes.push_back(mesh);
+
+    // Create a scene
+    tinygltf::Scene scene;
+    scene.nodes.push_back(0);
+
+    // Add scene to model
+    model.scenes.push_back(scene);
+    model.defaultScene = 0;
+
+    // Save the model to a file
+    gltf.WriteGltfSceneToFile(&model, filename_output, true, true, true, true);
+}
+
+
+// Assuming `write_gltf` is defined as provided
+
+void write_gltf_with_draco(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+
+}
+
+void write_gltf_pointcloud(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".glb";
+    tinygltf::Model model;
+    tinygltf::TinyGLTF gltf;
+
+    std::vector<float> positions;
+    std::vector<uint8_t> colors;
+    std::vector<uint16_t> indices;
+
+    uint16_t index = 0;
+
+    for (size_t x = 0; x < v_info.gridsize.x; x++) {
+        for (size_t y = 0; y < v_info.gridsize.y; y++) {
+            for (size_t z = 0; z < v_info.gridsize.z; z++) {
+                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
+                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
+                    uchar4 color = color_table[voxel_index];
+
+                    positions.push_back(static_cast<float>(x));
+                    positions.push_back(static_cast<float>(y));
+                    positions.push_back(static_cast<float>(z));
+
+                    colors.push_back(color.x);
+                    colors.push_back(color.y);
+                    colors.push_back(color.z);
+                    colors.push_back(color.w);
+
+                    indices.push_back(index++);
+                }
+            }
+        }
+    }
+
+    // Create a buffer
+    tinygltf::Buffer buffer;
+    buffer.data.resize(positions.size() * sizeof(float) + colors.size() * sizeof(uint8_t) + indices.size() * sizeof(uint16_t));
+
+    size_t offset = 0;
+    memcpy(buffer.data.data() + offset, positions.data(), positions.size() * sizeof(float));
+    offset += positions.size() * sizeof(float);
+    memcpy(buffer.data.data() + offset, colors.data(), colors.size() * sizeof(uint8_t));
+    offset += colors.size() * sizeof(uint8_t);
+    memcpy(buffer.data.data() + offset, indices.data(), indices.size() * sizeof(uint16_t));
+
+    model.buffers.push_back(buffer);
+
+    // Create buffer views
+    tinygltf::BufferView posBufferView;
+    posBufferView.buffer = 0;
+    posBufferView.byteOffset = 0;
+    posBufferView.byteLength = positions.size() * sizeof(float);
+    posBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(posBufferView);
+
+    tinygltf::BufferView colorBufferView;
+    colorBufferView.buffer = 0;
+    colorBufferView.byteOffset = posBufferView.byteLength;
+    colorBufferView.byteLength = colors.size() * sizeof(uint8_t);
+    colorBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(colorBufferView);
+
+    tinygltf::BufferView indexBufferView;
+    indexBufferView.buffer = 0;
+    indexBufferView.byteOffset = posBufferView.byteLength + colorBufferView.byteLength;
+    indexBufferView.byteLength = indices.size() * sizeof(uint16_t);
+    indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+    model.bufferViews.push_back(indexBufferView);
+
+    // Create accessors
+    tinygltf::Accessor posAccessor;
+    posAccessor.bufferView = 0;
+    posAccessor.byteOffset = 0;
+    posAccessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+    posAccessor.count = positions.size() / 3;
+    posAccessor.type = TINYGLTF_TYPE_VEC3;
+    model.accessors.push_back(posAccessor);
+
+    tinygltf::Accessor colorAccessor;
+    colorAccessor.bufferView = 1;
+    colorAccessor.byteOffset = 0;
+    colorAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+    colorAccessor.count = colors.size() / 4;
+    colorAccessor.type = TINYGLTF_TYPE_VEC4;
+    colorAccessor.normalized = true;
+    model.accessors.push_back(colorAccessor);
+
+    tinygltf::Accessor indexAccessor;
+    indexAccessor.bufferView = 2;
+    indexAccessor.byteOffset = 0;
+    indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+    indexAccessor.count = indices.size();
+    indexAccessor.type = TINYGLTF_TYPE_SCALAR;
+    model.accessors.push_back(indexAccessor);
+
+    // Create a primitive
+    tinygltf::Primitive primitive;
+    primitive.attributes["POSITION"] = 0;
+    primitive.attributes["COLOR_0"] = 1;
+    primitive.indices = 2;
+    primitive.mode = TINYGLTF_MODE_POINTS;
+
+    // Create a mesh
+    tinygltf::Mesh mesh;
+    mesh.primitives.push_back(primitive);
+
+    // Create a node
+    tinygltf::Node node;
+    node.mesh = model.meshes.size();
+    model.nodes.push_back(node);
+
+    // Add mesh to model
+    model.meshes.push_back(mesh);
+
+    // Create a scene
+    tinygltf::Scene scene;
+    scene.nodes.push_back(model.nodes.size() - 1);
+
+    // Add scene to model
+    model.scenes.push_back(scene);
+    model.defaultScene = model.scenes.size() - 1;
+
+    // Save the model to a file
+    gltf.WriteGltfSceneToFile(&model, filename_output, true, true, true, true);
+}
+
+void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".json";
+    
+    std::map<uint32_t, uint8_t> color_map;
+    uint8_t current_color_index = 1;
+    
+    std::vector<std::vector<int>> blockArray;
+    std::map<uint8_t, std::vector<int>> indexedBlocks;
+    
+    for (size_t x = 0; x < v_info.gridsize.x; x++) {
+        for (size_t y = 0; y < v_info.gridsize.y; y++) {
+            for (size_t z = 0; z < v_info.gridsize.z; z++) {
+                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
+                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
+                    uchar4 color = color_table[voxel_index];
+                    
+                    uint32_t packed_color = (color.x << 24) | (color.y << 16) | (color.z << 8) | color.w;
+                    
+                    if (color_map.find(packed_color) == color_map.end()) {
+                        color_map[packed_color] = current_color_index;
+                        current_color_index++;
+                    }
+                    
+                    uint8_t color_index = color_map[packed_color];
+                    blockArray.push_back({static_cast<int>(x), static_cast<int>(y), static_cast<int>(z), color_index});
+                    indexedBlocks[color_index] = {static_cast<int>(color.x), static_cast<int>(color.y), static_cast<int>(color.z), static_cast<int>(color.w)};
+                }
+            }
+        }
+    }
+    
+    // Serialize to JSON with no extra spaces
+    nlohmann::json json_output;
+    json_output["blocks"] = indexedBlocks;
+    json_output["xyzi"] = blockArray;
+    
+    std::ofstream file(filename_output);
+    file << json_output.dump();
+    file.close();
+    
+    fprintf(stdout, "[I/O] Written indexed JSON to %s\n", filename_output.c_str());
 }
