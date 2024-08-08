@@ -1,0 +1,11 @@
+name: VoxelEarth
+version: 1.0
+main: com.example.voxelearth.VoxelEarth
+api-version: 1.20
+description: A custom world generator plugin
+author: YourName
+load: STARTUP
+commands:
+  createcustomworld:
+    description: Create a custom world with VoxelEarth generator
+    usage: /createcustomworld <worldname>

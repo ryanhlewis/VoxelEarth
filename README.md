@@ -71,8 +71,13 @@ python combine_glb.py -- input_directory/ input_directory/combined.glb
 Note coords are in the format "lon lat" with no string quotes, such as -122.4194 37.7749.
 
 #### Minecraft
-We also show how our custom Minecraft plugin can load in the world on the fly. 
-
+We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. 
+The plugin is available inside `minecraft-plugin` and can be installed by copying the jar file to your Minecraft server's `plugins` directory. 
+```bash
+cp minecraft-plugin/VoxelEarth.jar /path/to/minecraft/server/plugins/
+```
+*NOTE: This plugin is still in development and may not work as expected.
+Do NOT use without making a backup of your server. Make an empty server to try it out!*
 
 ### Roadmap
 
@@ -147,6 +152,13 @@ If there's any problems with the voxelization that need to be fixed, the followi
    [**util_io.cpp**](cuda_voxelizer/src/util_io.cpp): This is the export script for the voxelizer. Any issues with exporting the voxelized GLB will be found here as well as any future support for other formats like Minecraft JSON or Schematic.
 
    [**TriMesh_io.cc**](trimesh2/libsrc/TriMesh_io.cc): Our ad-hoc implementation of importing GLTF files and extracting their textures into the voxelizer. Any issues with the GLTF format or importing will be found here.
+
+#### Minecraft
+To develop our Minecraft plugin, go inside `minecraft-plugin` and run the following commands to set up the plugin for development.
+```bash
+(in development)
+```
+Set up a Minecraft server and copy the plugin jar file to the `plugins` directory. You can then run the server and test the plugin in-game.
 
 ### Included Libraries
 This project includes modified versions of the following libraries:
