@@ -49,6 +49,26 @@ node voxelize.js myfile.glb # For GPU voxelization
 ```
 This will save to myfile_voxel.glb.
 
+For the custom location demo, we show how to load only the highest-resolution tiles around a custom location. 
+```bash
+cd 3dtiles-dl-master
+npm install
+node server.js
+```
+Since this demo uses BlenderPy and some custom Python, you may need to install some additional dependencies if any errors occur in console.
+```bash
+pip install numpy tqdm bpy
+```
+
+Note that you can use our scripts from this demo separately like:
+```bash
+# Save highest res tiles as GLB to a directory
+python -m threaded_api -k ${apiKey} -c ${coords} -r ${radius} -o ${outputDir}
+
+# Make a combined.glb of all the tiles in a directory
+python combine_glb.py -- input_directory/ input_directory/combined.glb
+```
+Note coords are in the format "lon lat" with no string quotes, such as -122.4194 37.7749.
 
 #### Minecraft
 We also show how our custom Minecraft plugin can load in the world on the fly. 

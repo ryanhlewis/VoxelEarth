@@ -1,0 +1,33 @@
+{
+  "name": "3dtiles-downloader",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@gltf-transform/core": "^4.0.8",
+    "@gltf-transform/extensions": "^4.0.8",
+    "@gltf-transform/functions": "^4.0.8",
+    "@gltf-transform/lib": "^0.10.3",
+    "body-parser": "^1.20.2",
+    "canvas": "^2.11.2",
+    "cesium": "^1.119.0",
+    "child_process": "^1.0.2",
+    "cors": "^2.8.5",
+    "draco3dgltf": "^1.5.7",
+    "express": "^4.19.2",
+    "fs-extra": "^11.2.0",
+    "gltf-pipeline": "^4.1.0",
+    "jsdom": "^24.1.1",
+    "mathjs": "^13.0.3",
+    "numeric": "^1.2.6",
+    "simple-statistics": "^7.8.3",
+    "three": "^0.166.1",
+    "three-stdlib": "^2.30.4"
+  }
+}
