@@ -154,11 +154,38 @@ If there's any problems with the voxelization that need to be fixed, the followi
    [**TriMesh_io.cc**](trimesh2/libsrc/TriMesh_io.cc): Our ad-hoc implementation of importing GLTF files and extracting their textures into the voxelizer. Any issues with the GLTF format or importing will be found here.
 
 #### Minecraft
-To develop our Minecraft plugin, go inside `minecraft-plugin` and run the following commands to set up the plugin for development.
+To develop our Minecraft plugin, first we'll set up an example Spigot server and plugin.
 ```bash
-(in development)
+# Install Java and Maven
+sudo apt update
+sudo apt install openjdk-11-jdk maven -y
+
+# Create server
+mkdir ~/spigot-server
+cd ~/spigot-server
+wget https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar
+java -jar BuildTools.jar --rev 1.20.5
+mkdir -p ~/spigot-server/plugins
+java -Xms512M -Xmx1024M -jar spigot-1.20.5.jar nogui
+echo "eula=true" > eula.txt
 ```
-Set up a Minecraft server and copy the plugin jar file to the `plugins` directory. You can then run the server and test the plugin in-game.
+
+Now, to develop the plugin, you can edit the files in `~/voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
+```bash
+cd ~/voxelearth/minecraft-plugin/
+mvn clean package
+cp target/myplugin-1.0-SNAPSHOT.jar ~/spigot-server/plugins/
+```
+and keep starting or restarting the server with another terminal:
+```bash
+cd ~/spigot-server
+java -Xms512M -Xmx1024M -jar spigot-1.20.5.jar nogui
+```
+
+If there's any problems with the Minecraft plugin, the main file that should be edited is:
+   
+   [**VoxelChunkGenerator.java**](minecraft-plugin/src/main/java/com/example/VoxelChunkGenerator.jav): This is the main file that handles mapping the player's location to a latitude and longitude, then loading the voxelized GLB into the Minecraft world.
+   
 
 ### Included Libraries
 This project includes modified versions of the following libraries:
@@ -174,6 +201,10 @@ This project includes modified versions of the following libraries:
 3. **tiles3d-demo by CartoDB**
    - **Original Repository**: [tiles3d-demo](https://github.com/CartoDB/tiles3d-demo)
    - **Modifications**: Adapted for integration with voxelization pipeline via proxy, used for front-end visualization and navigation.
+
+4. **3dtiles-dl by Lukas Lao Beyer**
+   - **Original Repository**: [3dtiles-dl](https://github.com/lukaslaobeyer/3dtiles-dl)
+   - **Modifications**: Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
 
 All original library code is licensed under their respective licenses. See individual LICENSE files in each modified library directory for more details.
 
