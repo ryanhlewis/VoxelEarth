@@ -1,5 +1,5 @@
 const { Accessor } = require('@gltf-transform/core');
-const { KHRDracoMeshCompression } = require('@gltf-transform/extensions');
+const { KHRDracoMeshCompression, KHRMaterialsUnlit, Unlit  } = require('@gltf-transform/extensions');
 const { mergeDocuments } = require('@gltf-transform/functions');
 const { PNG } = require('pngjs');
 
@@ -11,6 +11,9 @@ async function magicConvert(doc, mineDoc, io) {
     // Create single scene and set as default
     const mainScene = doc.createScene('MainScene');
     doc.getRoot().setDefaultScene(mainScene);
+
+    const unlitExtension = doc.createExtension(KHRMaterialsUnlit);
+
 
     // Remove the original mesh from the scene
     const originalMesh = doc.getRoot().listMeshes()[0];
@@ -191,6 +194,9 @@ async function magicConvert(doc, mineDoc, io) {
     const material = doc.createMaterial('ColoredMaterial')
         .setBaseColorTexture(texture);
 
+    const unlit = unlitExtension.createUnlit();
+    material.setExtension('KHR_materials_unlit', unlit);
+    
     mesh.listPrimitives().forEach((primitive) => {
         primitive.setMaterial(material);
     });

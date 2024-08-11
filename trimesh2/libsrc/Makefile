@@ -1,11 +1,13 @@
 DESTDIR = ../lib.$(UNAME)
+DRACO_DIR = ../../draco
 INCLUDES = -I../include \
-           -I~/draco/build/draco \
-           -I~/draco/src/draco \ 
-           -I~/draco/src/draco/compression \
-           -I~/draco/src/draco/compression/config
+           -I$(DRACO_DIR)/build \
+           -I$(DRACO_DIR)/src \
+           -I$(DRACO_DIR)/src/draco \
+           -I$(DRACO_DIR)/src/draco/compression \
+           -I$(DRACO_DIR)/src/draco/compression/config
 
-LIBS = -L~/draco/build -ldraco
+LIBS = -L$(DRACO_DIR)/build -ldraco
 
 include ../Makerules
 

@@ -22,7 +22,7 @@ app.use(express.static('public'));
 // Function to run GPU voxelizer
 async function runGpuVoxelizer(inputFile, outputFile, gridSize) {
     return new Promise((resolve, reject) => {
-        const command = `./cuda_voxelizer -f ${inputFile} -s ${gridSize} -o vox -output ${path.dirname(outputFile)}`;
+        const command = `./cuda_voxelizer -f ${inputFile} -s ${gridSize} -o glb -output ${path.dirname(outputFile)}`;
         exec(command, (error, stdout, stderr) => {
             if (error) {
                 reject(`Error: ${stderr}`);

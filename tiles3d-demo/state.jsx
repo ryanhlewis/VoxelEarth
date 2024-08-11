@@ -115,6 +115,18 @@ export const AppStateStore = ({children}) => {
     [filterValue, hoveredFeatureId]
   );
 
+  const flyToLocation = useCallback((latitude, longitude) => {
+    setViewState({
+      latitude,
+      longitude,
+      zoom: 17,
+      pitch: 50,
+      bearing: 0,
+      transitionDuration: 2000,
+      transitionInterpolator: new FlyToInterpolator(),
+    });
+  }, []);
+
   return (
     <AppStateContext.Provider
       value={{
@@ -133,6 +145,7 @@ export const AppStateStore = ({children}) => {
         currentSlide,
         layers,
         viewState,
+        flyToLocation,
         slidesNumber: slides.length
       }}
     >

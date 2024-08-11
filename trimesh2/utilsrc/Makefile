@@ -1,6 +1,7 @@
 DESTDIR = ../bin.$(UNAME)
-INCLUDES = -I../include -I. -I~/draco/src
-LIBDIR = -L../lib.$(UNAME) -L~/draco/build
+DRACO_DIR = ../../draco
+INCLUDES = -I../include -I. -I$(DRACO_DIR)/src
+LIBDIR = -L../lib.$(UNAME) -L$(DRACO_DIR)/build
 
 include ../Makerules
 

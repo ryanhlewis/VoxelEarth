@@ -17,8 +17,8 @@ Can write: PLY (triangle mesh, range grid), OFF, OBJ, RAY, SM, STL, PTS, C++, DA
 #include <map>
 
 // include draco for mesh compression
-#include "draco_features.h" // Use this if the build directory is included in INCLUDES
-#include "compression/decode.h" // Use this if the src directory is included in INCLUDES
+#include "draco/draco_features.h" // Use this if the build directory is included in INCLUDES
+#include "draco/compression/decode.h" // Use this if the src directory is included in INCLUDES
 
 
 #define TINYGLTF_IMPLEMENTATION
@@ -649,13 +649,14 @@ bool read_gltf(const char *filename, TriMesh *mesh) {
         mesh->textures[texture_index] = texture;
     }
 
-    // Save the model to a GLB file
-    save_gltf("output.glb", mesh);
+	// Uncomment below to debug the model
 
+    // Save the model to a GLB file
+    // save_gltf("output.glb", mesh);
     // Write to obj
-    if (!mesh->write("output.obj")) {
-        std::cerr << "Failed to write obj file" << std::endl;
-    }
+    // if (!mesh->write("output.obj")) {
+    //     std::cerr << "Failed to write obj file" << std::endl;
+    // }
 
     std::cerr << "GLTF file processed successfully: " << filename << std::endl;
     return true;

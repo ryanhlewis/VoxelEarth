@@ -6,6 +6,7 @@ import {useAppState} from '../../state';
 import {SIDEBAR_WIDTH} from '../Sidebar/Sidebar';
 import CoverLogo from '../Cover/CoverLogo';
 import CoverAttribution from '../Cover/CoverAttribution';
+import GeolocationSearchBar from '../Main/GeolocationSearchBar';
 
 const SCORES = ['Very Low', 'Low', 'Medium', 'High', 'Very High'];
 
@@ -124,13 +125,18 @@ const Map = () => {
             }}
           >
           </DeckGL>
+          <GeolocationSearchBar />
+
         </div>
+        
       </div>
       <CoverLogo />
+
       <div
         className={[classes.mapBlock, currentSlide > 0 ? classes.mapBlockHidden : ''].join(' ')}
       />
       <CoverAttribution />
+
     </>
   );
 };

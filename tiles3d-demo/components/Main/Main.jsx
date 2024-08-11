@@ -8,6 +8,7 @@ import CoverHeader from "../Cover/CoverHeader";
 import CoverLegend from "../Cover/CoverLegend";
 import Header from "../Header/Header";
 import { useAppState } from "../../state";
+import GeolocationSearchBar from "./GeolocationSearchBar";
 
 const useStyles = makeStyles((theme) => ({
   "@global": {

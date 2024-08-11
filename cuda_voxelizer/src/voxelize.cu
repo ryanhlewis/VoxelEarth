@@ -34,6 +34,43 @@ __device__ float3 calculateBarycentric(float3 v0, float3 v1, float3 v2, float3 p
     return make_float3(u, v, w);
 }
 
+__device__ float3 perspectiveDivide(float3 v) {
+    return make_float3(v.x / v.z, v.y / v.z, 1.0f / v.z);
+}
+
+__device__ float2 interpolateUV(float2 uv0, float2 uv1, float2 uv2, float3 barycentric, float w0, float w1, float w2) {
+    float2 uv = make_float2(
+        (uv0.x * barycentric.x / w0 + uv1.x * barycentric.y / w1 + uv2.x * barycentric.z / w2) / (barycentric.x / w0 + barycentric.y / w1 + barycentric.z / w2),
+        (uv0.y * barycentric.x / w0 + uv1.y * barycentric.y / w1 + uv2.y * barycentric.z / w2) / (barycentric.x / w0 + barycentric.y / w1 + barycentric.z / w2)
+    );
+    return uv;
+}
+
+__device__ uchar4 bilinearSample(uchar4* texture_data, float2 uv, int texture_width, int texture_height) {
+    float u = uv.x * (texture_width - 1);
+    float v = (1.0f - uv.y) * (texture_height - 1);  // Flip v coordinate
+    
+    int x0 = floorf(u);
+    int y0 = floorf(v);
+    int x1 = min(x0 + 1, texture_width - 1);
+    int y1 = min(y0 + 1, texture_height - 1);
+    
+    float dx = u - x0;
+    float dy = v - y0;
+    
+    uchar4 c00 = texture_data[y0 * texture_width + x0];
+    uchar4 c10 = texture_data[y0 * texture_width + x1];
+    uchar4 c01 = texture_data[y1 * texture_width + x0];
+    uchar4 c11 = texture_data[y1 * texture_width + x1];
+    
+    uchar4 color;
+    color.x = (1 - dx) * (1 - dy) * c00.x + dx * (1 - dy) * c10.x + (1 - dx) * dy * c01.x + dx * dy * c11.x;
+    color.y = (1 - dx) * (1 - dy) * c00.y + dx * (1 - dy) * c10.y + (1 - dx) * dy * c01.y + dx * dy * c11.y;
+    color.z = (1 - dx) * (1 - dy) * c00.z + dx * (1 - dy) * c10.z + (1 - dx) * dy * c01.z + dx * dy * c11.z;
+    color.w = 255;  // Assuming full opacity
+    
+    return color;
+}
 
 // Main triangle voxelization method
 __global__ void voxelize_triangle(voxinfo info, float* triangle_data, float* uv_data, unsigned int* voxel_table, uchar4* color_table, uchar4* texture_data, int texture_width, int texture_height, bool morton_order){
@@ -155,8 +192,25 @@ __global__ void voxelize_triangle(voxinfo info, float* triangle_data, float* uv_
 #ifdef _DEBUG
                     atomicAdd(&debug_d_n_voxels_marked, 1);
 #endif
-
-                    if (morton_order){
+                    // Calculate perspective-correct barycentric coordinates
+                    float3 bary = calculateBarycentric(v0, v1, v2, p);
+                    float w0 = 1.0f / dot(bary, make_float3(1.0f / v0.z, 1.0f / v1.z, 1.0f / v2.z));
+                    float w1 = w0 * bary.y / v1.z;
+                    float w2 = w0 * bary.z / v2.z;
+                    w0 = w0 * bary.x / v0.z;
+                    
+                    // Interpolate UV coordinates
+                    float2 uv = interpolateUV(uv0, uv1, uv2, bary, w0, w1, w2);
+                    
+                    // Clamp UV coordinates instead of wrapping
+                    uv.x = fmaxf(0.0f, fminf(1.0f, uv.x));
+                    uv.y = fmaxf(0.0f, fminf(1.0f, uv.y));
+                    
+                    // Sample texture using bilinear interpolation
+                    uchar4 color = bilinearSample(texture_data, uv, texture_width, texture_height);
+                    
+                    // Set voxel and assign color
+                    if (morton_order) {
                         size_t location = mortonEncode_LUT(x, y, z);
                         setBit(voxel_table, location);
                     } else {
@@ -166,27 +220,7 @@ __global__ void voxelize_triangle(voxinfo info, float* triangle_data, float* uv_
                             (static_cast<size_t>(z) * (static_cast<size_t>(info.gridsize.y) * static_cast<size_t>(info.gridsize.x)));
                         setBit(voxel_table, location);
                     }
-
-                    // Calculate the color using barycentric coordinates
-                    float3 bary = calculateBarycentric(v0, v1, v2, p);
-                    float2 uv = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
-
-					// Ensure UV coordinates are in the range [0, 1]
-					uv.x = fmodf(fabsf(uv.x), 1.0f);
-					uv.y = fmodf(fabsf(uv.y), 1.0f);
-
-					// Map UV coordinates to texture space
-					int tex_x = static_cast<int>(uv.x * (texture_width - 1));
-					int tex_y = static_cast<int>((1.0f - uv.y) * (texture_height - 1)); // Flip v-axis
-
-					// Ensure tex_x and tex_y are within texture bounds
-					tex_x = min(max(tex_x, 0), texture_width - 1);
-					tex_y = min(max(tex_y, 0), texture_height - 1);
-
-					size_t tex_idx = tex_y * texture_width + tex_x;
-					uchar4 color = texture_data[tex_idx];
-
-                    // Write the voxel color to the color table
+                    
                     size_t voxel_idx = x + (y * info.gridsize.x) + (z * info.gridsize.x * info.gridsize.y);
                     color_table[voxel_idx] = color;
                 }

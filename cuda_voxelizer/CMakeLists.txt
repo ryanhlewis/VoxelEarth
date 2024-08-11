@@ -44,24 +44,27 @@ MARK_AS_ADVANCED(Trimesh2_LIBRARY)
 MESSAGE(STATUS "Found Trimesh2 include: ${Trimesh2_TriMesh_h}")
 MESSAGE(STATUS "Found Trimesh2 lib: ${Trimesh2_LIBRARY}")
 
-SET(Draco_INCLUDE_DIR "$ENV{HOME}/draco/src")
-SET(Draco_LINK_DIR "$ENV{HOME}/draco/build")
+set(DRACO_DIR "${CMAKE_SOURCE_DIR}/../draco" CACHE PATH "Path to Draco root directory")
 
-IF(NOT EXISTS "${Draco_INCLUDE_DIR}/draco/compression/decode.h")
-  MESSAGE(FATAL_ERROR "Can't find draco/compression/decode.h in ${Draco_INCLUDE_DIR}")
-ENDIF()
+# Draco setup
+set(Draco_INCLUDE_DIR "${DRACO_DIR}/src")
+set(Draco_LINK_DIR "${DRACO_DIR}/build")
 
-IF(NOT EXISTS "${Draco_LINK_DIR}/libdraco.a")
-  MESSAGE(FATAL_ERROR "Can't find libdraco.a in ${Draco_LINK_DIR}")
-ENDIF()
+if(NOT EXISTS "${Draco_INCLUDE_DIR}/draco/compression/decode.h")
+    message(FATAL_ERROR "Can't find draco/compression/decode.h in ${Draco_INCLUDE_DIR}")
+endif()
+
+if(NOT EXISTS "${Draco_LINK_DIR}/libdraco.a")
+    message(FATAL_ERROR "Can't find libdraco.a in ${Draco_LINK_DIR}")
+endif()
 
 MESSAGE(STATUS "Found Draco include: ${Draco_INCLUDE_DIR}")
 MESSAGE(STATUS "Found Draco lib: ${Draco_LINK_DIR}/libdraco.a")
 
 # include_directories(${CMAKE_SOURCE_DIR}/src/libs/tinygltf)
-include_directories(../trimesh2/include)
-include_directories(~/draco/src)
-include_directories(~/draco/build/)
+include_directories(../trimesh2/include) # For tinygltf
+include_directories("${DRACO_DIR}/src")
+include_directories("${DRACO_DIR}/build")
 
 
 

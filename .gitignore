@@ -472,3 +472,7 @@ ModelManifest.xml
 
 #Filters
 ¨.filters
+
+
+draco/
+*OBJ.Linux64*/

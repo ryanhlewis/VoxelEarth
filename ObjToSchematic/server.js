@@ -31,16 +31,35 @@ const { Document } = require('@gltf-transform/core');
 const { quat, vec3, mat4 } = require('gl-matrix');
 const crypto = require('crypto');
 
+const cacheDir = path.join(__dirname, 'cache');
+const googleCacheDir = path.join(__dirname, 'googleCache');
+const completedCacheDir = path.join(__dirname, 'completedCache');
+const rotatedCacheDir = path.join(__dirname, 'rotatedCache');
+const gpuCacheDir = path.join(__dirname, 'gpuCache');
 
-// const https = require('https');
 
-// const agent = new https.Agent({  
-//     rejectUnauthorized: false
-//   });
+if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir);
+}
+
+if (!fs.existsSync(googleCacheDir)) {
+    fs.mkdirSync(googleCacheDir);
+}
+
+if (!fs.existsSync(completedCacheDir)) {
+    fs.mkdirSync(completedCacheDir);
+}
+
+if (!fs.existsSync(rotatedCacheDir)) {
+    fs.mkdirSync(rotatedCacheDir);
+}
+
+if (!fs.existsSync(gpuCacheDir)) {
+    fs.mkdirSync(gpuCacheDir);
+}
 
 
 const cluster = require('cluster');
-// const { or } = require('three/examples/jsm/nodes/Nodes.js');
 const numCPUs = require('os').cpus().length;
 
 if (cluster.isMaster) {
@@ -77,38 +96,9 @@ async function runGpuVoxelizer(inputFile, outputFile, gridSize) {
     });
 }
 
-const cacheDir = path.join(__dirname, 'cache');
-const googleCacheDir = path.join(__dirname, 'googleCache');
-const completedCacheDir = path.join(__dirname, 'completedCache');
-const rotatedCacheDir = path.join(__dirname, 'rotatedCache');
-const gpuCacheDir = path.join(__dirname, 'gpuCache');
-
-
-if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir);
-}
-
-if (!fs.existsSync(googleCacheDir)) {
-    fs.mkdirSync(googleCacheDir);
-}
-
-if (!fs.existsSync(completedCacheDir)) {
-    fs.mkdirSync(completedCacheDir);
-}
-
-if (!fs.existsSync(rotatedCacheDir)) {
-    fs.mkdirSync(rotatedCacheDir);
-}
-
-if (!fs.existsSync(gpuCacheDir)) {
-    fs.mkdirSync(gpuCacheDir);
-}
-
 var toggleMCG = true;
-var count = 3;
-
 var forceCPU = false;
-var gridsize = 32;
+var gridsize = 64;
 
 
 // Function to create a hash of the filename for uniqueness without length issues
