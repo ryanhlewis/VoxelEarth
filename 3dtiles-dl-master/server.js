@@ -7,6 +7,7 @@ const { NodeIO } = require('@gltf-transform/core');
 const { KHRDracoMeshCompression, KHRMaterialsUnlit } = require('@gltf-transform/extensions');
 const draco3d = require('draco3dgltf');
 const magicConvert = require('./magic');
+const { rotateAndSaveGlb, reverseRotation } = require('./rotateUtils');
 
 const app = express();
 const PORT = 3000;
@@ -128,8 +129,16 @@ app.post('/download-tiles', async (req, res) => {
             const combinedFilePath = path.join(outputDir, 'combined.glb');
             try {
                 await combineGLBFiles(renamedFiles.map(file => path.join(outputDir, file)), combinedFilePath);
+                
+                 // Add rotation check and apply rotation if necessary
+                const rotatedCacheFilePath = path.join(outputDir, 'combined_rotated.glb');
+                if (!fs.existsSync(rotatedCacheFilePath)) {
+                    await rotateAndSaveGlb(combinedFilePath, rotatedCacheFilePath);
+                    console.log(`Rotated GLB saved to ${rotatedCacheFilePath}`);
+                }
+                
                 const voxelizedFiles = [];
-                for (const file of ['combined.glb']) {
+                for (const file of ['combined_rotated.glb']) {
                     const inputFile = path.join(outputDir, file);
                     const outputFile = path.join(outputDir, file.replace('.glb', '_' + gridSize + '.glb'));
                     await runGpuVoxelizer(inputFile, outputFile, gridSize);
@@ -176,8 +185,16 @@ app.post('/download-tiles', async (req, res) => {
         const combinedFilePath = path.join(outputDir, 'combined.glb');
         try {
             await combineGLBFiles(renamedFiles.map(file => path.join(outputDir, file)), combinedFilePath);
+            
+            // Add rotation check and apply rotation if necessary
+            const rotatedCacheFilePath = path.join(outputDir, 'combined_rotated.glb');
+            if (!fs.existsSync(rotatedCacheFilePath)) {
+                await rotateAndSaveGlb(combinedFilePath, rotatedCacheFilePath);
+                console.log(`Rotated GLB saved to ${rotatedCacheFilePath}`);
+            }
+            
             const voxelizedFiles = [];
-            for (const file of ['combined.glb']) {
+            for (const file of ['combined_rotated.glb']) {
                 const inputFile = path.join(outputDir, file);
                 const outputFile = path.join(outputDir, file.replace('.glb', '_' + gridSize + '.glb'));
                 await runGpuVoxelizer(inputFile, outputFile, gridSize);

@@ -4,6 +4,9 @@ import sys
 from bpy.props import *
 import glob
 
+# Required - so we'll provide a local copy of Draco's DLL.
+os.environ['BLENDER_EXTERN_DRACO_LIBRARY_PATH'] = './extern_draco.dll'
+
 # Get the current directory name
 current_dir = os.path.dirname(os.path.abspath(__file__))
 

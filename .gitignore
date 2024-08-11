@@ -448,6 +448,8 @@ ModelManifest.xml
 *.so
 *.dylib
 *.dll
+!3dtiles-dl-master/extern_draco.dll
+
 
 # Fortran module files
 *.mod

@@ -11,7 +11,7 @@ export const headlessConfig: THeadlessConfig = {
     voxelise: {
         constraintAxis: 'y',
         voxeliser: 'bvh-ray',
-        size: 80,
+        size: 16,
         useMultisampleColouring: false,
         voxelOverlapRule: 'average',
         enableAmbientOcclusion: false, // Only want true if exporting to .obj

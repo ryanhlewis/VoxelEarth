@@ -24,7 +24,7 @@ setLoaderOptions({
 const { resample, prune, dedup, draco, textureCompress } = require('@gltf-transform/functions');
 const sharp = require('sharp');
 const magicConvert = require('./magic');
-const rotateUtils = require('./rotateUtils');
+const { rotateAndSaveGlb, reverseRotation } = require('./rotateUtils');
 const redis = require('redis');
 const { promisify } = require('util');
 const { Document } = require('@gltf-transform/core');
@@ -65,7 +65,8 @@ const { exec } = require('child_process');
 // Function to run GPU voxelizer
 async function runGpuVoxelizer(inputFile, outputFile, gridSize) {
     return new Promise((resolve, reject) => {
-        const command = `./cuda_voxelizer -f ${inputFile} -s ${gridSize} -output ${path.dirname(outputFile)}`;
+        // ./cuda_voxelizer -f /path/to/input.glb -s 32 -output /path/to/output
+        const command = `./cuda_voxelizer -f ${inputFile} -s ${gridSize} -o glb -output ${path.dirname(outputFile)}`;
         exec(command, (error, stdout, stderr) => {
             if (error) {
                 reject(`Error: ${stderr}`);
@@ -106,7 +107,7 @@ if (!fs.existsSync(gpuCacheDir)) {
 var toggleMCG = true;
 var count = 3;
 
-var forceCPU = true;
+var forceCPU = false;
 var gridsize = 32;
 
 
@@ -133,7 +134,7 @@ app.get('/v1/3dtiles/:path*', async (req, res) => {
 
     const redisKey = `completedCache:${sanitizedFileName}`;
     if(sanitizedFileName.includes('.glb')) {
-    sanitizedFileName = sanitizedFileName.split('.glb')[0] + '.glb';
+        sanitizedFileName = sanitizedFileName.split('.glb')[0] + '.glb';
     }
     console.log('Sanitized file name: ' + sanitizedFileName);
 
@@ -204,15 +205,14 @@ app.get('/v1/3dtiles/:path*', async (req, res) => {
             const apiKey = 'AIzaSy...'; // Replace with your actual API key
             const baseUrl = 'https://tile.googleapis.com/v1/3dtiles/';
             const url = `${baseUrl}${req.params.path}${req.params[0]}${req.originalUrl.split('?')[1] ? '?' + req.originalUrl.split('?')[1] : ''}`;
-            var headers = {
-            'X-Goog-Api-Key': apiKey
+            const headers = {
+                'X-Goog-Api-Key': apiKey
             };
 
-            response = await axios.get( url, {
+            response = await axios.get(url, {
                 responseType: 'arraybuffer',
                 headers: headers
             });
-
 
             console.log('Fetched ' + response.data.byteLength + ' bytes');
 
@@ -227,7 +227,7 @@ app.get('/v1/3dtiles/:path*', async (req, res) => {
                 return res.send(response.data);
             }
 
-            if(!toggleMCG) {
+            if (!toggleMCG) {
                 res.send(response.data);
             }
 
@@ -239,30 +239,67 @@ app.get('/v1/3dtiles/:path*', async (req, res) => {
             }
             resp = buffer;
 
-            if(!toggleMCG) {
+            if (!toggleMCG) {
                 res.send(buffer);
             }
-
         }
 
+        // Apply rotation to the GLB file before voxelization
         if (originalUrl.includes('glb')) {
             console.log('Processing ' + originalUrl);
 
+            if (!fs.existsSync(rotatedCacheFilePath)) {
+                await rotateAndSaveGlb(googleCacheFilePath, rotatedCacheFilePath);
+                console.log(`Rotated GLB saved to ${rotatedCacheFilePath}`);
+            }
+
             let mineDoc;
 
-            if(!fs.existsSync(cacheFilePath)) {
+            if (!fs.existsSync(cacheFilePath)) {
                 console.log('Running headless for ' + originalUrl);
-                const headlessConfig1 = { ...headlessConfig, import: { file: googleCacheFilePath, rotation: new Vector3(0, 0, 0) } };
-                
+                const headlessConfig1 = { ...headlessConfig, 
+                    import: { file: rotatedCacheFilePath, rotation: new Vector3(0, 0, 0) },
+                    voxelise: { 
+                        constraintAxis: 'y',
+                        voxeliser: 'bvh-ray',
+                        size: gridsize,
+                        useMultisampleColouring: false,
+                        voxelOverlapRule: 'average',
+                        enableAmbientOcclusion: false,
+                    }
+                };
+
                 let compressedAndModifiedBuffer;
-                if(forceCPU) {
-                const customGlbFile = await runHeadless(headlessConfig1);
-                compressedAndModifiedBuffer = await compressAndCopyAttributes(new Uint8Array(customGlbFile), resp);
+                if (forceCPU) {
+                    const customGlbFile = await runHeadless(headlessConfig1);
+                    compressedAndModifiedBuffer = await compressAndCopyAttributes(new Uint8Array(customGlbFile), resp);
+                    // Save to gpuCacheDir
+                    fs.writeFileSync(gpuCacheFilePath, Buffer.from(compressedAndModifiedBuffer));
+
+                    // Get translation and rotation from the original file
+                    const originalBuffer = await fs1.readFile(googleCacheFilePath);
+                    const originalDoc = await io.readBinary(new Uint8Array(originalBuffer));
+                    const originalNode = originalDoc.getRoot().listNodes()[0];
+                    const originalTranslation = originalNode.getTranslation();
+
+                    // Reverse the rotation after voxelization
+                    await reverseRotation(originalTranslation, gpuCacheFilePath, gpuCacheFilePath); // Use the correct file path here
+                    compressedAndModifiedBuffer = await fs1.readFile(gpuCacheFilePath);
                 } else {
-                const voxelizedGlbFile = await runGpuVoxelizer(googleCacheFilePath, gpuCacheFilePath, gridsize);
-                compressedAndModifiedBuffer = await compressAndCopyAttributes(new Uint8Array(fs.readFileSync(voxelizedGlbFile)), resp);
-                }
+                    const voxelizedGlbFile = await runGpuVoxelizer(rotatedCacheFilePath, gpuCacheFilePath, gridsize);
+                    compressedAndModifiedBuffer = await compressAndCopyAttributes(new Uint8Array(fs.readFileSync(voxelizedGlbFile)), resp);
                 
+                    // Get translation and rotation from the original file
+                    const originalBuffer = await fs1.readFile(googleCacheFilePath);
+                    const originalDoc = await io.readBinary(new Uint8Array(originalBuffer));
+                    const originalNode = originalDoc.getRoot().listNodes()[0];
+                    const originalTranslation = originalNode.getTranslation();
+
+                    // Reverse the rotation after voxelization
+                    await reverseRotation(originalTranslation, gpuCacheFilePath, gpuCacheFilePath); // Use the correct file path here
+                    compressedAndModifiedBuffer = await fs1.readFile(gpuCacheFilePath);
+                }
+
                 fs.writeFileSync(cacheFilePath, Buffer.from(compressedAndModifiedBuffer));
 
                 mineDoc = await io.readBinary(new Uint8Array(compressedAndModifiedBuffer));
@@ -285,6 +322,7 @@ app.get('/v1/3dtiles/:path*', async (req, res) => {
         res.status(500).send('An error occurred while processing the request.');
     }
 });
+
 
 async function compressAndCopyAttributes(buffer, originalBuffer) {
     const options = {

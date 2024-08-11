@@ -49,15 +49,15 @@ node voxelize.js myfile.glb # For GPU voxelization
 ```
 This will save to myfile_voxel.glb.
 
-For the custom location demo, we show how to load only the highest-resolution tiles around a custom location. 
+For the custom location demo, we show how to load only the highest-resolution tiles around a custom location. Since this particular demo uses cuda_voxelizer, you'll need to run this on Linux/WSL2 with an NVIDIA GPU.
 ```bash
 cd 3dtiles-dl-master
 npm install
 node server.js
 ```
-Since this demo uses BlenderPy and some custom Python, you may need to install some additional dependencies if any errors occur in console.
+Since this demo uses BlenderPy, you may need to install some additional dependencies if any errors occur in console. Use Python 3.10.6 for best compatibility with Blender.
 ```bash
-pip install numpy tqdm bpy
+pip install numpy tqdm bpy pillow
 ```
 
 Note that you can use our scripts from this demo separately like:
@@ -87,7 +87,7 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ㅤ] **Texture Fixes**: Our current GPU voxelization gets textures mostly accurate, but is somewhat spotty with white/black pixels and needs to be revised.
 
-[ㅤ] **Rotation Fixes**: Convert 3D Tiles from ECEF to ENU to properly orient the object before voxelizing and have "flat voxels" instead of diagonal (credit to Google Earth team for this advice).
+[ ✔ ] **Rotation Fixes**: Convert 3D Tiles from ECEF to ENU to properly orient the object before voxelizing and have "flat voxels" instead of diagonal (credit to Google Earth team for this advice).
 
 [ㅤ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
 
