@@ -170,6 +170,16 @@ java -Xms512M -Xmx1024M -jar spigot-1.20.5.jar nogui
 echo "eula=true" > eula.txt
 ```
 
+Finally, copy over the voxelization files. In future versions, this should be inside Java plugin, 
+but for right now it's easier to develop via bindings to our Python and NodeJS code.
+```bash 
+cd ~/voxelearth/minecraft-plugin/
+cp -r ./server-folder-items/* ~/spigot-server/
+chmod 777 ~/spigot-server/cuda_voxelizer
+cd ~/spigot-server/scripts/
+npm install
+```
+
 Now, to develop the plugin, you can edit the files in `~/voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
 ```bash
 cd ~/voxelearth/minecraft-plugin/
