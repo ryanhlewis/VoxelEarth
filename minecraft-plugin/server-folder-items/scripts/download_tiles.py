@@ -38,8 +38,11 @@ def calculate_sha256(file_path):
             sha256.update(chunk)
     return sha256.hexdigest()
 
-def rotate_glb(input_file, output_file):
-    command = ['node', 'scripts/rotateUtils.js', input_file, output_file]
+def rotate_glb(input_file, output_file, position_output_file, origin_translation_file):
+    command = [
+        'node', 'scripts/rotateUtils.js', 
+        input_file, output_file, position_output_file, origin_translation_file
+    ]
     result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -47,7 +50,6 @@ def rotate_glb(input_file, output_file):
         sys.exit(result.returncode)
 
     print(result.stdout)
-    os.remove(input_file)  # Delete the unrotated GLB file
 
 
 if __name__ == "__main__":
@@ -84,7 +86,9 @@ if __name__ == "__main__":
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
-    print("Downloading tiles...")
+    origin_translation_file = 'origin_translation.json'
+
+    print("Downloading and rotating tiles...")
     for i, t in tqdm(enumerate(tiles), total=len(tiles)):
         input_path = outdir / f"{t.basename}.glb"
 
@@ -95,13 +99,19 @@ if __name__ == "__main__":
         sha256_hash = calculate_sha256(input_path)
         old_file_path = outdir / f"{sha256_hash}_old.glb"
         rotated_file_path = outdir / f"{sha256_hash}.glb"
+        position_output_file = outdir / f"{sha256_hash}_position.json"
 
         # Rename the original file with the SHA-256 hash and "_old"
         input_path.rename(old_file_path)
 
         # Rotate the GLB and save as the SHA-256 filename
         print(f"Rotating {t.basename} to {rotated_file_path.name}")
-        rotate_glb(str(old_file_path), str(rotated_file_path))
+        rotate_glb(
+            str(old_file_path), 
+            str(rotated_file_path), 
+            str(position_output_file), 
+            str(origin_translation_file)
+        )
 
         # Delete the old file after successful rotation
         if old_file_path.exists():

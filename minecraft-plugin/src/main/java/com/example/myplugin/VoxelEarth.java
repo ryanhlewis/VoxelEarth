@@ -10,6 +10,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class VoxelEarth extends JavaPlugin {
 
+    // Hold a single instance of VoxelChunkGenerator
+    private VoxelChunkGenerator voxelChunkGenerator;
+
     @Override
     public void onEnable() {
         getLogger().info("VoxelEarth has been enabled");
@@ -22,6 +25,11 @@ public class VoxelEarth extends JavaPlugin {
 
     @Override
     public ChunkGenerator getDefaultWorldGenerator(String worldName, String id) {
+        if (voxelChunkGenerator == null) {
+            getLogger().info("VoxelEarth making new Chunk Generator");
+            voxelChunkGenerator = new VoxelChunkGenerator();
+        }
+        getLogger().info("VoxelEarth is returning Default World Generator");
         return new VoxelChunkGenerator();
     }
 
@@ -37,6 +45,35 @@ public class VoxelEarth extends JavaPlugin {
                 return true;
             } else {
                 sender.sendMessage("Usage: /createcustomworld <worldname>");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("regenchunks")) {
+            if (args.length == 6) {  // Updated to expect 6 arguments
+                double scaleX = Double.parseDouble(args[0]);
+                double scaleY = Double.parseDouble(args[1]);
+                double scaleZ = Double.parseDouble(args[2]);
+                double newOffsetX = Double.parseDouble(args[3]);
+                double newOffsetY = Double.parseDouble(args[4]);
+                double newOffsetZ = Double.parseDouble(args[5]);
+
+                World world = Bukkit.getWorld("world"); // Replace with your world name
+                if (world == null) {
+                    sender.sendMessage("World not found!");
+                    return false;
+                }
+
+                if (voxelChunkGenerator == null) {
+                    getLogger().info("VoxelEarth making new Chunk Generator");
+                    voxelChunkGenerator = new VoxelChunkGenerator();
+                }
+
+                // Call regenChunks with individual scaling and offsets for each axis
+                voxelChunkGenerator.regenChunks(world, scaleX, scaleY, scaleZ, newOffsetX, newOffsetY, newOffsetZ);
+
+                sender.sendMessage("Chunks regenerated with new parameters.");
+                return true;
+            } else {
+                sender.sendMessage("Usage: /regenchunks <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>");
                 return false;
             }
         }

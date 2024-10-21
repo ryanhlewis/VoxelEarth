@@ -9,3 +9,6 @@ commands:
   createcustomworld:
     description: Create a custom world with VoxelEarth generator
     usage: /createcustomworld <worldname>
+  regenchunks:
+    description: Regenerate chunks with new scale and offsets.
+    usage: /regenchunks <scale> <offsetX> <offsetY> <offsetZ>

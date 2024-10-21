@@ -15,6 +15,16 @@ import java.util.Map;
 import java.util.Random;
 import org.json.JSONTokener;
 
+import org.bukkit.Bukkit;
+import org.bukkit.World;
+import org.bukkit.Chunk;
+import java.util.function.BiConsumer;
+
+import java.io.FileOutputStream;
+import java.io.ObjectOutputStream;
+import java.io.FileInputStream;
+import java.io.ObjectInputStream;
+
 public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final double LAT_ORIGIN = 50.081033020810736;
@@ -23,8 +33,96 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private TileDownloader tileDownloader;
     private Map<String, Map<String, Material>> indexedBlocks = new HashMap<>();
 
+
+    // Default values for scale and offsets
+    private double scaleFactor = 1.0;
+    private double offsetX = 0.0;
+    private double offsetY = 0.0;
+    private double offsetZ = 0.0;
+    private double scaleX = 0.0;
+    private double scaleY = 0.0;
+    private double scaleZ = 0.0;
+
+public void regenChunks(World world, 
+                        double scaleX, double scaleY, double scaleZ, 
+                        double newOffsetX, double newOffsetY, double newOffsetZ) {
+    // Update the parameters for each axis separately
+    this.offsetX = newOffsetX;
+    this.offsetY = newOffsetY;
+    this.offsetZ = newOffsetZ;
+    this.scaleX = scaleX;
+    this.scaleY = scaleY;
+    this.scaleZ = scaleZ;
+
+    System.out.println("Clearing existing blocks...");
+    for (int chunkX = -20; chunkX <= 20; chunkX++) {
+        for (int chunkZ = -20; chunkZ <= 20; chunkZ++) {
+            Chunk chunk = world.getChunkAt(chunkX, chunkZ);
+            if (!chunk.isLoaded()) {
+                chunk.load();
+            }
+
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < world.getMaxHeight(); y++) {
+                    for (int z = 0; z < 16; z++) {
+                        chunk.getBlock(x, y, z).setType(Material.AIR, false);
+                    }
+                }
+            }
+        }
+    }
+    System.out.println("All blocks cleared. Loading and regenerating new blocks...");
+
+    try {
+        loadIndexedJson(new File("tiles0_0")); // Adjust path if needed
+    } catch (IOException e) {
+        System.out.println("Failed to load indexed JSON blocks.");
+        e.printStackTrace();
+    }
+
+    Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+        System.out.println("Starting chunk regeneration...");
+        System.out.println("Indexblocks length " + indexedBlocks.size());
+
+        for (Map.Entry<String, Map<String, Material>> tileEntry : indexedBlocks.entrySet()) {
+            Map<String, Material> blockMap = tileEntry.getValue();
+
+            for (Map.Entry<String, Material> blockEntry : blockMap.entrySet()) {
+                String[] parts = blockEntry.getKey().split(",");
+                int originalX = Integer.parseInt(parts[0]);
+                int originalY = Integer.parseInt(parts[1]);
+                int originalZ = Integer.parseInt(parts[2]);
+
+                int newX = (int) (originalX);
+                int newY = (int) (originalY);
+                int newZ = (int) (originalZ);
+
+                int blockChunkX = newX >> 4;
+                int blockChunkZ = newZ >> 4;
+
+                Chunk chunk = world.getChunkAt(blockChunkX, blockChunkZ);
+                if (!chunk.isLoaded()) {
+                    chunk.load();
+                }
+
+                int localX = newX & 15;
+                int localZ = newZ & 15;
+
+                chunk.getBlock(localX, newY, localZ).setType(blockEntry.getValue(), false);
+                // System.out.println("Set block at " + localX + ", " + newY + ", " + localZ);
+            }
+        }
+        System.out.println("Chunks regenerated with new parameters.");
+    });
+}
+
+
+
+
+
     public VoxelChunkGenerator() {
-        tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 15);
+        System.out.println("VoxelEarth is making TileDownloader");
+        tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 100); //15
     }
 
     private void downloadAndProcessTiles(int chunkX, int chunkZ) {
@@ -82,84 +180,109 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         return Material.STONE;
     }
 
-    private void loadIndexedJson(File directory) throws IOException {
-        File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files != null) {
-            System.out.println("Found " + files.length + " JSON files in directory " + directory);
-            for (File file : files) {
-                String chunkKey = file.getName().replace(".json", "");
-                try (FileReader reader = new FileReader(file)) {
-                    JSONObject json = new JSONObject(new JSONTokener(reader));
-    
-                    // Debug the JSON object
-                    // System.out.println("JSON content from file: " + file.getName());
-                    // System.out.println(json.toString(2)); // Pretty print with indentation
-    
-                    // Check if the "blocks" and "xyzi" keys exist
-                    if (!json.has("blocks") || !json.has("xyzi")) {
-                        System.out.println("No 'blocks' or 'xyzi' key found in JSON file: " + file.getName());
-                        continue; // Skip this file and move to the next
-                    }
-    
-                    JSONArray blocksArray = json.getJSONArray("blocks");
-                    JSONArray xyziArray = json.getJSONArray("xyzi");
-                    Map<String, Material> blockMap = new HashMap<>();
-    
-                    // Map color indices to materials
-                    Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
-                    for (int i = 0; i < blocksArray.length(); i++) {
-                        JSONArray blockEntry = blocksArray.getJSONArray(i);
-                        int colorIndex = blockEntry.getInt(0);
-                        JSONArray rgbaArray = blockEntry.getJSONArray(1);
-    
-                        // Create a material based on the RGBA values
-                        Material material = mapRgbaToMaterial(rgbaArray);
-                        colorIndexToMaterial.put(colorIndex, material);
-                    }
-    
-                    // Now parse the "xyzi" array
-                    for (int i = 0; i < xyziArray.length(); i++) {
-                        JSONArray xyziEntry = xyziArray.getJSONArray(i);
-                        int x = xyziEntry.getInt(0);
-                        int y = xyziEntry.getInt(1);
-                        int z = xyziEntry.getInt(2);
-                        int colorIndex = xyziEntry.getInt(3);
-    
-                        String blockName = x + "," + y + "," + z;
-                        Material material = colorIndexToMaterial.get(colorIndex);
-    
-                        if (material != null) {
-                            blockMap.put(blockName, material);
-                            System.out.println("Adding block at " + blockName + " with material: " + material);
-                        } else {
-                            System.out.println("Unknown material for color index: " + colorIndex);
+private void loadIndexedJson(File directory) throws IOException {
+    File[] jsonFiles = directory.listFiles((dir, name) -> name.endsWith(".json") && !name.contains("_position"));
+    if (jsonFiles != null) {
+        for (File file : jsonFiles) {
+            String baseName = file.getName().replace(".json", "");
+            try (FileReader reader = new FileReader(file)) {
+                JSONObject json = new JSONObject(new JSONTokener(reader));
+
+                File positionFile = new File(directory, baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
+                double[] tileTranslation = new double[3];
+                if (positionFile.exists()) {
+                    try (FileReader posReader = new FileReader(positionFile)) {
+                        JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
+                        if (positionArray.length() > 0) {
+                            JSONObject positionData = positionArray.getJSONObject(0);
+                            JSONArray translationArray = positionData.getJSONArray("translation");
+
+                            tileTranslation[0] = (translationArray.getDouble(0) * scaleX) + offsetX;
+                            tileTranslation[1] = (translationArray.getDouble(1) * scaleY) + offsetY;
+                            tileTranslation[2] = (translationArray.getDouble(2) * scaleZ) + offsetZ;
                         }
                     }
-                    int chunkX = 0; // Calculate or extract chunkX from the file or data
-                    int chunkZ = -1; // Calculate or extract chunkZ from the file or data
-                    chunkKey = chunkX + "_" + chunkZ;
-                    System.out.println("Storing block data with chunkKey: " + chunkKey);
-                    indexedBlocks.put(chunkKey, blockMap);
-                } catch (Exception e) {
-                    System.err.println("Error reading or parsing JSON file: " + file.getName());
-                    e.printStackTrace();
                 }
+
+                if (!json.has("blocks") || !json.has("xyzi")) {
+                    continue;
+                }
+
+                JSONArray blocksArray = json.getJSONArray("blocks");
+                JSONArray xyziArray = json.getJSONArray("xyzi");
+                Map<String, Material> blockMap = new HashMap<>();
+
+                Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
+                for (int i = 0; i < blocksArray.length(); i++) {
+                    JSONArray blockEntry = blocksArray.getJSONArray(i);
+                    int colorIndex = blockEntry.getInt(0);
+                    JSONArray rgbaArray = blockEntry.getJSONArray(1);
+
+                    Material material = mapRgbaToMaterial(rgbaArray);
+                    colorIndexToMaterial.put(colorIndex, material);
+                }
+
+                for (int i = 0; i < xyziArray.length(); i++) {
+                    JSONArray xyziEntry = xyziArray.getJSONArray(i);
+                    int x = xyziEntry.getInt(0);
+                    int y = xyziEntry.getInt(1);
+                    int z = xyziEntry.getInt(2);
+                    int colorIndex = xyziEntry.getInt(3);
+
+                    // Swap axes and apply translation
+                    int translatedX = (int) ((x + tileTranslation[0]) );
+                    int translatedY = (int) ((y + tileTranslation[1]) );
+                    int translatedZ = (int) ((z + tileTranslation[2]) );
+
+                    String blockName = translatedX + "," + translatedY + "," + translatedZ;
+                    Material material = colorIndexToMaterial.get(colorIndex);
+
+                    if (material != null) {
+                        blockMap.put(blockName, material);
+                    }
+                }
+
+                indexedBlocks.put(baseName, blockMap);
             }
-        } else {
-            System.out.println("No files found in directory " + directory);
         }
     }
-    
+}
+
+
+
+// Save indexedBlocks to a file
+public void saveIndexedBlocks(String filename) throws IOException {
+    try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(filename))) {
+        out.writeObject(indexedBlocks);
+    }
+}
+
+// Load indexedBlocks from a file
+public void loadIndexedBlocks(String filename) throws IOException, ClassNotFoundException {
+    try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(filename))) {
+        indexedBlocks = (Map<String, Map<String, Material>>) in.readObject();
+    }
+}
+
 
     @Override
     public void generateSurface(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData chunkData) {
-        
+        // System.out.println("VoxelEarth is Generating Surface");
+
         // Only download and process tiles once for the initial chunks
         if (chunkX == 0 && chunkZ == 0) {
             System.out.println("Performing Voxel Earth on initial chunk: " + chunkX + ", " + chunkZ);
             downloadAndProcessTiles(chunkX, chunkZ);
+
+            System.out.println("saving indexed blocks");
+            try {
+                saveIndexedBlocks("tiles_0");  // Adjust path as needed
+            } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+            
         }
-    
+
         // Now process the blocks, allowing them to extend across all relevant chunks
         for (Map.Entry<String, Map<String, Material>> chunkEntry : indexedBlocks.entrySet()) {
             Map<String, Material> blockMap = chunkEntry.getValue();
@@ -181,7 +304,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     int localZ = z & 15;  // equivalent to z % 16
     
                     chunkData.setBlock(localX, y, localZ, blockEntry.getValue());
-                    System.out.println("Setting block at " + localX + ", " + y + ", " + localZ + " in chunk (" + chunkX + ", " + chunkZ + ") with material: " + blockEntry.getValue());
+                    // System.out.println("Setting block at " + localX + ", " + y + ", " + localZ + " in chunk (" + chunkX + ", " + chunkZ + ") with material: " + blockEntry.getValue());
                 }
             }
         }

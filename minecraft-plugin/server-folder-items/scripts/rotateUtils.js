@@ -2,6 +2,7 @@ const { quat, mat4, vec3 } = require('gl-matrix');
 const { NodeIO } = require('@gltf-transform/core');
 const { KHRDracoMeshCompression, KHRMaterialsUnlit } = require('@gltf-transform/extensions');
 const draco3d = require('draco3dgltf');
+const fs = require('fs');
 
 // Function to normalize a vector
 function normalize(vec) {
@@ -9,36 +10,8 @@ function normalize(vec) {
     return length > 0 ? vec.map(v => v / length) : vec;
 }
 
-// Function to calculate the rotation quaternion to align ECEF up to global ENU up
-function calculateRotation(ecef) {
-    const upVec = normalize(ecef);
-    const desiredUp = [0, 0, 1];
-
-    const cross = [
-        upVec[1] * desiredUp[2] - upVec[2] * desiredUp[1],
-        upVec[2] * desiredUp[0] - upVec[0] * desiredUp[2],
-        upVec[0] * desiredUp[1] - upVec[1] * desiredUp[0]
-    ];
-
-    const dot = upVec[0] * desiredUp[0] + upVec[1] * desiredUp[1] + upVec[2] * desiredUp[2];
-    const s = Math.sqrt((1 + dot) * 2);
-    const invs = 1 / s;
-
-    return quat.normalize(quat.create(), [
-        cross[0] * invs,  // X
-        cross[2] * invs,  // Z
-        -cross[1] * invs, // Y (negated)
-        s * 0.5           // W
-    ]);
-}
-
-// Function to apply a rotation to a vertex using a matrix
-function applyRotationToVertex(vertex, rotationMatrix) {
-    return vec3.transformMat4([], vertex, rotationMatrix);
-}
-
 // Main function to rotate and save the GLB file
-async function rotateAndSaveGlb(inputFilePath, outputFilePath) {
+async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslationPath) {
     const io = new NodeIO()
         .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit])
         .registerDependencies({
@@ -49,57 +22,114 @@ async function rotateAndSaveGlb(inputFilePath, outputFilePath) {
     const doc = await io.read(inputFilePath);
     const nodes = doc.getRoot().listNodes();
 
+    let originTranslation = null;
+    if (originTranslationPath && fs.existsSync(originTranslationPath)) {
+        // Read originTranslation from file
+        originTranslation = JSON.parse(fs.readFileSync(originTranslationPath, 'utf-8'));
+    }
+
+    const tileTranslations = [];
+
     nodes.forEach((node) => {
         const translation = node.getTranslation();
 
         if (translation) {
-            const correctedECEF = [translation[0], -translation[2], translation[1]];
-            const rotationQuaternion = calculateRotation(correctedECEF);
+            if (!originTranslation) {
+                // If originTranslation is not set, this is the first tile
+                originTranslation = translation.slice();
+                // Save originTranslation to file
+                if (originTranslationPath) {
+                    fs.writeFileSync(originTranslationPath, JSON.stringify(originTranslation));
+                }
+            }
+
+            // Compute relative translation
+            const relativeTranslation = [
+                translation[0] - originTranslation[0],
+                translation[1] - originTranslation[1],
+                translation[2] - originTranslation[2],
+            ];
+
+            // Compute the up vector (from the ECEF position)
+            const upVec = normalize(translation);
+
+            // Desired up direction is the global ENU up (which is [0, 0, 1] in GLTF coordinate system)
+            const desiredUp = [0, 1, 0]; // Y-up in GLTF
+
+            // Calculate rotation quaternion using gl-matrix's rotationTo function
+            const rotationQuaternion = quat.create();
+            quat.rotationTo(rotationQuaternion, upVec, desiredUp);
+
+            // Create rotation matrix from the quaternion
             const rotationMatrix = mat4.fromQuat([], rotationQuaternion);
 
+            // Rotate the relative translation
+            const rotatedTranslation = vec3.transformMat4([], relativeTranslation, rotationMatrix);
+
+            // Rotate the mesh vertices
             const mesh = node.getMesh();
             if (mesh) {
                 mesh.listPrimitives().forEach(primitive => {
                     const positionAccessor = primitive.getAttribute('POSITION');
-                    const vertexCount = positionAccessor.getCount();
                     const positionArray = positionAccessor.getArray();
+                    const vertexCount = positionAccessor.getCount();
 
                     for (let i = 0; i < vertexCount; i++) {
                         const vertex = [
                             positionArray[i * 3],
                             positionArray[i * 3 + 1],
-                            positionArray[i * 3 + 2]
+                            positionArray[i * 3 + 2],
                         ];
-                        const rotatedVertex = applyRotationToVertex(vertex, rotationMatrix);
+
+                        // Apply rotation to the vertex
+                        const rotatedVertex = vec3.transformMat4([], vertex, rotationMatrix);
 
                         positionArray[i * 3] = rotatedVertex[0];
                         positionArray[i * 3 + 1] = rotatedVertex[1];
                         positionArray[i * 3 + 2] = rotatedVertex[2];
                     }
 
-                    positionAccessor.setArray(positionArray); // Update the accessor
+                    positionAccessor.setArray(positionArray);
                 });
             }
 
-            node.setRotation([0, 0, 0, 1]); // Reset rotation
+            // Set node rotation to identity (since we've already applied the rotation)
+            node.setRotation([0, 0, 0, 1]);
+
+            // Set node translation to the rotated translation
+            node.setTranslation(rotatedTranslation);
+
+            // Save the rotated translation for reference
+            tileTranslations.push({
+                name: node.getName() || 'Unnamed Node',
+                translation: rotatedTranslation
+            });
         }
     });
 
     await io.write(outputFilePath, doc);
+
+    // Write the position data to a JSON file
+    if (positionOutputPath && tileTranslations.length > 0) {
+        fs.writeFileSync(positionOutputPath, JSON.stringify(tileTranslations, null, 2));
+    }
 }
 
-// Parse command-line arguments and execute the function
+// Execute the function with command-line arguments
 (async () => {
-    const [inputFilePath, outputFilePath] = process.argv.slice(2);
+    const [inputFilePath, outputFilePath, positionOutputPath, originTranslationPath] = process.argv.slice(2);
 
-    if (!inputFilePath || !outputFilePath) {
-        console.error("Usage: node rotateUtils.js <inputFilePath> <outputFilePath>");
+    if (!inputFilePath || !outputFilePath || !positionOutputPath || !originTranslationPath) {
+        console.error(
+            "Usage: node rotateUtils.js <inputFilePath> <outputFilePath> <positionOutputPath> <originTranslationPath>"
+        );
         process.exit(1);
     }
 
     try {
-        await rotateAndSaveGlb(inputFilePath, outputFilePath);
+        await rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslationPath);
         console.log(`Rotated GLB saved to ${outputFilePath}`);
+        console.log(`Position data saved to ${positionOutputPath}`);
     } catch (error) {
         console.error("Error rotating GLB:", error);
     }

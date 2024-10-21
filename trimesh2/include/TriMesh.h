@@ -69,6 +69,7 @@ public:
 	//
 
 	// custom
+	point node_translation;
 	std::vector<UV> uvs;
     // New property for storing textures
     struct Texture {

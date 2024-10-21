@@ -113,7 +113,31 @@ If there's any problems with the voxelization that need to be fixed, the followi
 **GPU Voxelization:**\
 *(Currently Linux-only / WSL2)*\
 For GPU voxelization, you'll need to install the CUDA toolkit and ensure your system has a NVIDIA GPU. We recommend [WSL2 copy-paste commands from NVIDIA](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local).
-1. **Install Dependencies**: First, create a [Google Draco](https://github.com/google/draco) build for compression:
+
+If you end up needing to setup NVIDIA drivers- make sure to run these commands after using theirs.
+   ```bash
+export PATH=/usr/local/cuda/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+source ~/.bashrc
+nvcc --version
+   ```
+NVCC should print a version if installed correctly.
+
+**Locating Files**: First, let's copy trimesh2 and cuda_voxelizer directly to the home directory to make our Makefiles easier.
+```bash
+cp -r voxelearth/trimesh2/ ~
+cp -r voxelearth/cuda_voxelizer/ ~
+```
+And we'll also need to install some libraries for Trimesh2 to build correctly.
+```bash
+sudo apt install libgl-dev
+sudo apt install libglu-dev
+sudo apt install libxi-dev
+```
+
+
+1. **Google Draco**: First, create a [Google Draco](https://github.com/google/draco) build for compression:
    ```bash
    cd ~
    git clone https://github.com/google/draco.git
@@ -122,28 +146,39 @@ For GPU voxelization, you'll need to install the CUDA toolkit and ensure your sy
    cd build
    cmake ..
    make
+
+   cp -r ~/draco/src/draco ~/trimesh2/include/
+   cp -r ~/draco/build/draco/* ~/trimesh2/include/draco/
    ```
    
 2. **Trimesh2**: First, we have to set up the primary dependency of cuda_voxelizer:
    ```bash
    cd trimesh2
+   chmod 777 copyFiles.sh
    ./copyFiles.sh
    ```
-   You may have to `sudo chmod +x copyFiles.sh`. It's just a script to automatically build and copy Trimesh2 files directly for cuda_voxelizer.
+   This script will automatically build and copy Trimesh2 files directly for cuda_voxelizer.
 
 3. **cuda_voxelizer**: Finally, to set up our GPU voxelizer, follow these steps:
    ```bash
-   cd cuda_voxelizer/build
+   cd cuda_voxelizer
+   chmod 777 build.sh
    ./build.sh
    ```
-   This will build the voxelizer and place it in the `cuda_voxelizer/build` directory. If you have any issues building, you may need to adjust the `build.sh` file to reference your correct CUDA architecture (60, 70, 80, 90, etc).
+   This will build the voxelizer and place it in the `cuda_voxelizer/build` directory.
+   You can run it via..
+   ```bash 
+   chmod 777 build/cuda_voxelizer
+   ./build/cuda_voxelizer
+   ```
 
 4. **Run test voxelizer**: Use the produced binary to debug and test voxelization.
    ```bash
-   ./cuda_voxelizer -f myfile.glb -s 64 -o glb
+   ./build/cuda_voxelizer -f myfile.glb -s 64 -o glb
    # Or, if you want to try out JSON for Minecraft
-   ./cuda_voxelizer -f myfile.glb -s 64 -o json
+   ./build/cuda_voxelizer -f myfile.glb -s 64 -o json
    ```
+   Remember - if you copy the binary to another folder you may have to fix the permissions again via chmod 777.
 
 If there's any problems with the voxelization that need to be fixed, the following files are likely the culprits:
    
@@ -172,7 +207,7 @@ echo "eula=true" > eula.txt
 
 Finally, copy over the voxelization files. In future versions, this should be inside Java plugin, 
 but for right now it's easier to develop via bindings to our Python and NodeJS code.
-```bash 
+```bash
 cd ~/voxelearth/minecraft-plugin/
 cp -r ./server-folder-items/* ~/spigot-server/
 chmod 777 ~/spigot-server/cuda_voxelizer
