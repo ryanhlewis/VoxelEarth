@@ -76,6 +76,41 @@ public class VoxelEarth extends JavaPlugin {
                 sender.sendMessage("Usage: /regenchunks <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>");
                 return false;
             }
+        } else if (command.getName().equalsIgnoreCase("loadjson")) {
+            if (args.length == 7) {
+                String filename = args[0];
+                double scaleX = Double.parseDouble(args[1]);
+                double scaleY = Double.parseDouble(args[2]);
+                double scaleZ = Double.parseDouble(args[3]);
+                double offsetX = Double.parseDouble(args[4]);
+                double offsetY = Double.parseDouble(args[5]);
+                double offsetZ = Double.parseDouble(args[6]);
+
+                World world = Bukkit.getWorld("world"); // future - player's world or custom?
+                if (world == null) {
+                    sender.sendMessage("World not found!");
+                    return false;
+                }
+
+                if (voxelChunkGenerator == null) {
+                    getLogger().info("Creating new VoxelChunkGenerator");
+                    voxelChunkGenerator = new VoxelChunkGenerator();
+                }
+
+                try {
+                    voxelChunkGenerator.loadMaterialColors();
+                    voxelChunkGenerator.loadJson(filename, scaleX, scaleY, scaleZ, offsetX, offsetY, offsetZ);
+                    // voxelChunkGenerator.regenChunks(world);
+                    sender.sendMessage("JSON file loaded and chunks regenerated.");
+                } catch (Exception e) {
+                    sender.sendMessage("Failed to load JSON file: " + filename);
+                    e.printStackTrace();
+                }
+                return true;
+            } else {
+                sender.sendMessage("Usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>");
+                return false;
+            }
         }
         return false;
     }

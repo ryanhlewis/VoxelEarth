@@ -12,3 +12,6 @@ commands:
   regenchunks:
     description: Regenerate chunks with new scale and offsets.
     usage: /regenchunks <scale> <offsetX> <offsetY> <offsetZ>
+  loadjson:
+    description: Load a JSON file and apply scaling and offset.
+    usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>

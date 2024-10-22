@@ -646,11 +646,15 @@ void write_gltf_pointcloud(const unsigned int* vtable, const uchar4* color_table
 void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
     std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".json";
     
-    std::map<uint32_t, uint8_t> color_map;
-    uint8_t current_color_index = 1;
+    // uint16_t allows up to 65535 colors
+    std::map<std::string, uint16_t> color_map;
+    uint16_t current_color_index = 1;
     
     std::vector<std::vector<int>> blockArray;
-    std::map<uint8_t, std::vector<int>> indexedBlocks;
+    nlohmann::json blocks_json;
+    
+    // int debug_counter = 0;
+    // const int max_debug = 5;
     
     for (size_t x = 0; x < v_info.gridsize.x; x++) {
         for (size_t y = 0; y < v_info.gridsize.y; y++) {
@@ -659,16 +663,25 @@ void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, c
                     size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
                     uchar4 color = color_table[voxel_index];
                     
-                    uint32_t packed_color = (color.x << 24) | (color.y << 16) | (color.z << 8) | color.w;
+                    // Create a string key for the color in "R,G,B" format
+                    std::string color_key = std::to_string(color.x) + "," + std::to_string(color.y) + "," + std::to_string(color.z);
                     
-                    if (color_map.find(packed_color) == color_map.end()) {
-                        color_map[packed_color] = current_color_index;
+                    // If the color is not already in the map, add it
+                    if (color_map.find(color_key) == color_map.end()) {
+                        color_map[color_key] = current_color_index;
+                        // Store the RGB values in blocks_json
+                        blocks_json[std::to_string(current_color_index)] = {color.x, color.y, color.z};
+                        
+                        // if (debug_counter < max_debug) {
+                        //     printf("Mapping Color Index %d to Color (%d, %d, %d)\n", current_color_index, color.x, color.y, color.z);
+                        //     debug_counter++;
+                        // }
+                        
                         current_color_index++;
                     }
                     
-                    uint8_t color_index = color_map[packed_color];
-                    blockArray.push_back({static_cast<int>(x), static_cast<int>(y), static_cast<int>(z), color_index});
-                    indexedBlocks[color_index] = {static_cast<int>(color.x), static_cast<int>(color.y), static_cast<int>(color.z), static_cast<int>(color.w)};
+                    uint16_t color_index = color_map[color_key];
+                    blockArray.push_back({static_cast<int>(x), static_cast<int>(y), static_cast<int>(z), static_cast<int>(color_index)});
                 }
             }
         }
@@ -676,10 +689,15 @@ void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, c
     
     // Serialize to JSON with no extra spaces
     nlohmann::json json_output;
-    json_output["blocks"] = indexedBlocks;
+    json_output["blocks"] = blocks_json;
     json_output["xyzi"] = blockArray;
     
+    // Write the JSON to a file
     std::ofstream file(filename_output);
+    if (!file.is_open()) {
+        fprintf(stderr, "[Error] Could not open file for writing: %s\n", filename_output.c_str());
+        return;
+    }
     file << json_output.dump();
     file.close();
     

@@ -192,16 +192,12 @@ __global__ void voxelize_triangle(voxinfo info, float* triangle_data, float* uv_
 #ifdef _DEBUG
                     atomicAdd(&debug_d_n_voxels_marked, 1);
 #endif
-                    // Calculate perspective-correct barycentric coordinates
+                    // Calculate barycentric coordinates
                     float3 bary = calculateBarycentric(v0, v1, v2, p);
-                    float w0 = 1.0f / dot(bary, make_float3(1.0f / v0.z, 1.0f / v1.z, 1.0f / v2.z));
-                    float w1 = w0 * bary.y / v1.z;
-                    float w2 = w0 * bary.z / v2.z;
-                    w0 = w0 * bary.x / v0.z;
-                    
-                    // Interpolate UV coordinates
-                    float2 uv = interpolateUV(uv0, uv1, uv2, bary, w0, w1, w2);
-                    
+
+                    // Interpolate UV coordinates directly
+                    float2 uv = bary.x * uv0 + bary.y * uv1 + bary.z * uv2;
+
                     // Clamp UV coordinates instead of wrapping
                     uv.x = fmaxf(0.0f, fminf(1.0f, uv.x));
                     uv.y = fmaxf(0.0f, fminf(1.0f, uv.y));

@@ -124,10 +124,10 @@ nvcc --version
    ```
 NVCC should print a version if installed correctly.
 
-**Locating Files**: First, let's copy trimesh2 and cuda_voxelizer directly to the home directory to make our Makefiles easier.
+**Locating Files**: First, let's copy trimesh2 and cuda_voxelizer directly to home for our Makefiles direct reference.
 ```bash
-cp -r voxelearth/trimesh2/ ~
-cp -r voxelearth/cuda_voxelizer/ ~
+cp -r ~/voxelearth/trimesh2/ ~
+cp -r ~/voxelearth/cuda_voxelizer/ ~
 ```
 And we'll also need to install some libraries for Trimesh2 to build correctly.
 ```bash
@@ -231,6 +231,22 @@ If there's any problems with the Minecraft plugin, the main file that should be 
    
    [**VoxelChunkGenerator.java**](minecraft-plugin/src/main/java/com/example/VoxelChunkGenerator.jav): This is the main file that handles mapping the player's location to a latitude and longitude, then loading the voxelized GLB into the Minecraft world.
    
+
+Currently, new tiles are populated when the server is booted and does not have a 'world' folder. If the "0,0" chunk is loaded, then you will see the console begin to download and convert tiles. Buggy servers will sometimes not load 0,0, if this is the case, delete the world folder and restart the server.
+
+Inside your server with the Voxel Earth plugin, there are two commands so far:
+```yml
+  regenchunks:
+    description: Regenerate chunks with new scale and offsets.
+    usage: /regenchunks <scale> <offsetX> <offsetY> <offsetZ>
+  loadjson:
+    description: Load a JSON file and apply scaling and offset.
+    usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
+```
+RegenChunks will use the initial tileset from tiles0_0 folder and spawn in the tiles again. It does not fetch new tiles. That is in future work.
+
+LoadJSON will use a relative JSON file location to the server directory and spawn it in. This is primarily for debugging.
+
 
 ### Included Libraries
 This project includes modified versions of the following libraries:

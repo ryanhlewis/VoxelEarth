@@ -299,62 +299,66 @@ int main(int argc, char* argv[]) {
 
     // COMPUTE BOUNDING BOX AND VOXELISATION PARAMETERS
     fprintf(stdout, "\n## VOXELISATION SETUP \n");
+
+    // Make tile slightly smaller than bounds (to avoid clipping)
+    float scale_factor = 1.3f;
+
     // Define fixed tile size (same for all tiles)
-float tile_size_x = 12.26f;
-float tile_size_y = 36.45f;
-float tile_size_z = 47.59f;
-// float tile_size_x = 47.59f;
-// float tile_size_y = 47.59f;
-// float tile_size_z = 47.59f;
+    float tile_size_x = 12.26f * scale_factor;
+    float tile_size_y = 36.45f * scale_factor;
+    float tile_size_z = 47.59f * scale_factor;
+    // float tile_size_x = 47.59f;
+    // float tile_size_y = 47.59f;
+    // float tile_size_z = 47.59f;
 
-// Get the node translation
-float3 node_translation = make_float3(
-    themesh->node_translation[0],
-    themesh->node_translation[1],
-    themesh->node_translation[2]
-);
+    // Get the node translation
+    float3 node_translation = make_float3(
+        themesh->node_translation[0],
+        themesh->node_translation[1],
+        themesh->node_translation[2]
+    );
 
-// Print node translation for debugging
-std::cerr << "Node Translation: (" 
-          << node_translation.x << ", "
-          << node_translation.y << ", "
-          << node_translation.z << ")" << std::endl;
+    // Print node translation for debugging
+    std::cerr << "Node Translation: (" 
+            << node_translation.x << ", "
+            << node_translation.y << ", "
+            << node_translation.z << ")" << std::endl;
 
-// Compute the fixed tile bounding box around the node translation
-float3 tile_bbox_min = node_translation - 
-    make_float3(tile_size_x / 2.0f, tile_size_y / 2.0f, tile_size_z / 2.0f);
-float3 tile_bbox_max = node_translation + 
-    make_float3(tile_size_x / 2.0f, tile_size_y / 2.0f, tile_size_z / 2.0f);
+    // Compute the fixed tile bounding box around the node translation
+    float3 tile_bbox_min = node_translation - 
+        make_float3(tile_size_x / 2.0f, tile_size_y / 2.0f, tile_size_z / 2.0f);
+    float3 tile_bbox_max = node_translation + 
+        make_float3(tile_size_x / 2.0f, tile_size_y / 2.0f, tile_size_z / 2.0f);
 
-// Print tile bounding box for debugging
-std::cerr << "Fixed Tile BBox Min: (" 
-          << tile_bbox_min.x << ", " << tile_bbox_min.y << ", " << tile_bbox_min.z << ")" << std::endl;
-std::cerr << "Fixed Tile BBox Max: (" 
-          << tile_bbox_max.x << ", " << tile_bbox_max.y << ", " << tile_bbox_max.z << ")" << std::endl;
+    // Print tile bounding box for debugging
+    std::cerr << "Fixed Tile BBox Min: (" 
+            << tile_bbox_min.x << ", " << tile_bbox_min.y << ", " << tile_bbox_min.z << ")" << std::endl;
+    std::cerr << "Fixed Tile BBox Max: (" 
+            << tile_bbox_max.x << ", " << tile_bbox_max.y << ", " << tile_bbox_max.z << ")" << std::endl;
 
-// Translate the mesh to align with the tile's position
-// for (auto& vertex : themesh->vertices) {
-//     vertex.x += node_translation.x;
-//     vertex.y += node_translation.y;
-//     vertex.z += node_translation.z;
-// }
+    // Translate the mesh to align with the tile's position
+    // for (auto& vertex : themesh->vertices) {
+    //     vertex.x += node_translation.x;
+    //     vertex.y += node_translation.y;
+    //     vertex.z += node_translation.z;
+    // }
 
-// Create a consistent voxel bounding box (fixed size, same for all tiles)
-AABox<float3> voxel_bbox(tile_bbox_min, tile_bbox_max);
+    // Create a consistent voxel bounding box (fixed size, same for all tiles)
+    AABox<float3> voxel_bbox(tile_bbox_min, tile_bbox_max);
 
-// Debug: Output voxel bounding box dimensions
-std::cerr << "Voxel BBox Min: (" 
-          << voxel_bbox.min.x << ", " 
-          << voxel_bbox.min.y << ", " 
-          << voxel_bbox.min.z << ")" << std::endl;
+    // Debug: Output voxel bounding box dimensions
+    std::cerr << "Voxel BBox Min: (" 
+            << voxel_bbox.min.x << ", " 
+            << voxel_bbox.min.y << ", " 
+            << voxel_bbox.min.z << ")" << std::endl;
 
-std::cerr << "Voxel BBox Max: (" 
-          << voxel_bbox.max.x << ", " 
-          << voxel_bbox.max.y << ", " 
-          << voxel_bbox.max.z << ")" << std::endl;
-    
-// Create a cube-shaped bounding box
-AABox<float3> bbox_mesh_cubed = createMeshBBCube<float3>(voxel_bbox);
+    std::cerr << "Voxel BBox Max: (" 
+            << voxel_bbox.max.x << ", " 
+            << voxel_bbox.max.y << ", " 
+            << voxel_bbox.max.z << ")" << std::endl;
+        
+    // Create a cube-shaped bounding box
+    AABox<float3> bbox_mesh_cubed = createMeshBBCube<float3>(voxel_bbox);
 
     // AABox<float3> bbox_mesh_cubed = createMeshBBCube<float3>(AABox<float3>(trimesh_to_float3(themesh->bbox.min), trimesh_to_float3(themesh->bbox.max)));
     voxinfo voxelization_info(bbox_mesh_cubed, make_uint3(gridsize, gridsize, gridsize), themesh->faces.size());
@@ -363,7 +367,8 @@ AABox<float3> bbox_mesh_cubed = createMeshBBCube<float3>(voxel_bbox);
     uchar4* color_table = 0;
 
     size_t voxel_count = static_cast<size_t>(ceil(static_cast<size_t>(voxelization_info.gridsize.x) * static_cast<size_t>(voxelization_info.gridsize.y) * static_cast<size_t>(voxelization_info.gridsize.z) / 32.0f) * 4);
-    size_t color_data_size = static_cast<size_t>(voxelization_info.gridsize.x * voxelization_info.gridsize.y * voxelization_info.gridsize.z * 4);
+size_t color_data_size = static_cast<size_t>(
+    voxelization_info.gridsize.x * voxelization_info.gridsize.y * voxelization_info.gridsize.z);
     size_t vtable_size = voxel_count;
 
     fprintf(stdout, "[Voxel Grid] Creating a voxel grid of size %d x %d x %d \n", voxelization_info.gridsize.x, voxelization_info.gridsize.y, voxelization_info.gridsize.z);

@@ -9,6 +9,7 @@ public class TileDownloader {
     private double radius;
 
     public TileDownloader(String apiKey, double latitude, double longitude, double radius) {
+        System.out.println("Made TileDownloader");
         this.apiKey = apiKey;
         this.latitude = latitude;
         this.longitude = longitude;
@@ -49,15 +50,5 @@ public class TileDownloader {
         }
 
         System.out.println("[I/O] Python script executed successfully.");
-    }
-
-    public static void main(String[] args) {
-        try {
-            // Example usage
-            TileDownloader downloader = new TileDownloader("your_api_key_here", 37.7749, -122.4194, 10.0);
-            downloader.downloadTiles("/path/to/output/directory");
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 }
