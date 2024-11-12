@@ -19,7 +19,7 @@ def _get_elevation(lon, lat, key):
         }
     )
     if not res.ok:
-        raise RuntimeError(f"response not ok: {response.status_code}, {response.text}")
+        raise RuntimeError(f"response not ok: {res.status_code}, {res.text}")
     data = res.json()
     if not data["status"] == "OK" or "results" not in data:
         raise RuntimeError(f"status not ok: {data['status']}, {data}")

@@ -16,6 +16,15 @@ public class TileDownloader {
         this.radius = radius;
     }
 
+    public void setCoordinates(double latitude, double longitude) {
+        this.latitude = latitude;
+        this.longitude = longitude;
+    }
+
+    public void setRadius(double radius) {
+        this.radius = radius;
+    }
+
     public void downloadTiles(String outputDirectory) throws IOException, InterruptedException {
         // Construct the command
         String[] command = {
@@ -26,6 +35,9 @@ public class TileDownloader {
             "-r", String.valueOf(radius),
             "-o", outputDirectory
         };
+
+        // Print the command for debugging
+        System.out.println("[I/O] Running command: " + String.join(" ", command));
 
         // Run the command using Runtime.exec()
         Process process = Runtime.getRuntime().exec(command);
