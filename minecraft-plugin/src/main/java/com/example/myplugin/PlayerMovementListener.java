@@ -33,12 +33,7 @@ public class PlayerMovementListener implements Listener {
         // Get the player's current position (XYZ)
         double x = to.getX();
         double z = to.getZ();
-
-        // System.out.println("Player moved to: " + x + ", " + z);
-
         System.out.println("Player moved to: " + x + ", " + z);
-
-        // Convert block coordinates to latitude and longitude
         double[] latLng = generator.blockToLatLng(x, z);
         System.out.println("Player's latitude and longitude: " + latLng[0] + ", " + latLng[1]);
     

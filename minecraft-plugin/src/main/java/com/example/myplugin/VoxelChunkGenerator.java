@@ -56,6 +56,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+// blockchanger dep
+import org.bukkit.inventory.ItemStack;
+
 public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final double LAT_ORIGIN = 50.081033020810736;
@@ -65,6 +68,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private ConcurrentHashMap<String, Map<String, Object>> indexedBlocks = new ConcurrentHashMap<>();
     private static final List<MaterialColor> MATERIAL_COLORS = new ArrayList<>();
     private Map<Integer, Material> colorToMaterialCache = new HashMap<>();
+
+    // origin ecef
+    private double[] originEcef; // [x0, y0, z0]
 
     // Default values for scale and offsets
     private double scaleFactor = 2.1;
@@ -138,7 +144,8 @@ private void processChunksInBatches(List<Chunk> chunks, World world) {
 
                     // Check if the block is not AIR before placing
                     if (block.getType() != Material.AIR) {
-                        block.setType(Material.AIR, false); // Remove block (setting to AIR)
+                        // block.setType(Material.AIR, false); // Remove block (setting to AIR)
+                        BlockChanger.setSectionBlockAsynchronously(block.getLocation(), new ItemStack(Material.AIR), false);
                     }
 
                     // Now place the new block (if there's one to place)
@@ -161,7 +168,8 @@ private void placeNewBlock(Chunk chunk, int x, int y, int z, World world) {
         Material material = blockMap.get(blockKey);
 
         if (material != null) {
-            chunk.getBlock(x, y, z).setType(material, false); // Place new block
+            // chunk.getBlock(x, y, z).setType(material, false); // Place new block
+            BlockChanger.setSectionBlockAsynchronously(chunk.getBlock(x, y, z).getLocation(), new ItemStack(material), false);
             indexMap.put("isPlaced", true); // Mark as placed
         }
     }
@@ -596,7 +604,13 @@ indexedBlocks = new ConcurrentHashMap<>();
                     int localX = newX & 15;
                     int localZ = newZ & 15;
 
-                    chunk.getBlock(localX, newY, localZ).setType(blockEntry.getValue(), false);
+                    // chunk.getBlock(localX, newY, localZ).setType(blockEntry.getValue(), false);
+                    BlockChanger.setSectionBlockAsynchronously(
+                        chunk.getBlock(localX, newY, localZ).getLocation(), 
+                        new ItemStack(blockEntry.getValue()), 
+                        false
+                    );
+
                     // System.out.println("Set block at " + localX + ", " + newY + ", " + localZ);
                 }
             }
@@ -670,81 +684,83 @@ indexedBlocks = new ConcurrentHashMap<>();
 
 
     public void loadChunk(int tileX, int tileZ, Consumer<int[]> callback) {
-        try {
-            int[] blockLocation = new int[]{210, 70, 0}; // Default location
+        Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+            try {
+                // 1. Read originEcef from origin_translation.json
+                File originTranslationFile = new File("origin_translation.json");
+                if (originTranslationFile.exists()) {
+                    try (FileReader reader = new FileReader(originTranslationFile)) {
+                        JSONArray originArray = new JSONArray(new JSONTokener(reader));
+                        originEcef = new double[3];
+                        originEcef[0] = originArray.getDouble(0); // ECEF X
+                        originEcef[1] = -originArray.getDouble(2); // ECEF Y (negative of GLTF Z)
+                        originEcef[2] = originArray.getDouble(1); // ECEF Z
+                        System.out.println("Adjusted origin ECEF: " + Arrays.toString(originEcef));
+                    }
+                }
     
-            String outputDirectory = SESSION_DIR; // Use the session directory for all tiles
+                int[] blockLocation = new int[]{210, 70, 0}; // Default location
     
-            // Set the coordinates for the specific tile
-            double[] latLng = minecraftToLatLng(tileX, tileZ);  // Assume 1 meter per block
-            tileDownloader.setCoordinates(latLng[1], latLng[0]);  // lng, lat
+                String outputDirectory = SESSION_DIR; // Use the session directory for all tiles
     
-            tileDownloader.setRadius(25);
+                // 2. Set the coordinates for the specific tile
+                double[] latLng = minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
+                tileDownloader.setCoordinates(latLng[1], latLng[0]); // lng, lat
+                tileDownloader.setRadius(100);
     
-            // Download only one tile
-            tileDownloader.downloadTiles(outputDirectory);
+                // 3. Download only one tile
+                tileDownloader.downloadTiles(outputDirectory);
     
-            // Voxelize the downloaded tile
-            runGpuVoxelizer(outputDirectory);
+                // 4. Voxelize the downloaded tile
+                runGpuVoxelizer(outputDirectory);
     
-            // Before loading new tiles, get the keys of existing tiles
-            Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
+                // 5. Load the JSON for the specific tile
+                Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
+                loadIndexedJson(new File(outputDirectory));
+                Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
+                currentKeys.removeAll(previousKeys);
     
-            // Load the JSON for the specific tile
-            loadIndexedJson(new File(outputDirectory));
+                // 6. Determine the initial tile key
+                String initialTileKey = null;
+                if (!currentKeys.isEmpty()) {
+                    initialTileKey = currentKeys.iterator().next();
+                } else if (!indexedBlocks.isEmpty()) {
+                    initialTileKey = indexedBlocks.keySet().iterator().next();
+                } else {
+                    System.out.println("No tiles are loaded. Cannot compute block location.");
+                    callback.accept(blockLocation);
+                    return;
+                }
     
-            // After loading, get the new keys
-            Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
-            currentKeys.removeAll(previousKeys);
+                // 7. Compute yOffset and prepare for block placement
+                final AtomicInteger yOffset = new AtomicInteger(0);
+                final int desiredY = 70; // The Y-level where you want the base of your initial tile to be placed
     
-            // Get the initial tile key
-            String initialTileKey = null;
-            if (!currentKeys.isEmpty()) {
-                initialTileKey = currentKeys.iterator().next();
-            } else if (!indexedBlocks.isEmpty()) {
-                // No new tiles were loaded, but tiles exist in indexedBlocks
-                initialTileKey = indexedBlocks.keySet().iterator().next();
-            } else {
-                // No tiles at all; cannot proceed
-                System.out.println("No tiles are loaded. Cannot compute block location.");
-                callback.accept(blockLocation);
-                return;
-            }
+                // 8. Schedule Bukkit task for block placement
+                String finalInitialTileKey = initialTileKey;
+                // Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+                    System.out.println("Starting chunk regeneration...");
+                    System.out.println("Indexblocks size: " + indexedBlocks.size());
     
-            // Now we need to compute yOffset within this method
-            final AtomicBoolean yOffsetComputed = new AtomicBoolean(false);
-            final AtomicInteger yOffset = new AtomicInteger(0);
-            final int desiredY = 70; // The Y-level where you want the base of your initial tile to be placed
+                    World world = Bukkit.getWorld("world"); // Adjust as necessary
+                    if (world == null) {
+                        System.out.println("World 'world' not found.");
+                        callback.accept(blockLocation);
+                        return;
+                    }
     
-            final String initialTileKeyFinal = initialTileKey; // For use inside the lambda
-    
-            Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
-                System.out.println("Starting chunk regeneration...");
-                System.out.println("Indexblocks length " + indexedBlocks.size());
-    
-                World world = Bukkit.getWorld("world"); // Adjust as necessary
-    
-                // Process the initial tile
-                if (initialTileKeyFinal != null) {
-                    Map<String, Object> indexMap1 = indexedBlocks.get(initialTileKeyFinal);
-    
+                    // Process the initial tile
+                    Map<String, Object> indexMap1 = indexedBlocks.get(finalInitialTileKey);
                     if (indexMap1 != null) {
                         Map<String, Material> blockMap1 = (Map<String, Material>) indexMap1.get("blocks");
     
                         // Compute minYInTile for the initial tile
-                        int minYInTile = Integer.MAX_VALUE;
-    
-                        for (Map.Entry<String, Material> blockEntry : blockMap1.entrySet()) {
-                            String[] parts = blockEntry.getKey().split(",");
-                            int originalY = Integer.parseInt(parts[1]);
-    
-                            if (originalY < minYInTile) {
-                                minYInTile = originalY;
-                            }
-                        }
+                        int minYInTile = blockMap1.keySet().stream()
+                                .mapToInt(key -> Integer.parseInt(key.split(",")[1]))
+                                .min()
+                                .orElse(0);
     
                         yOffset.set(desiredY - minYInTile);
-                        yOffsetComputed.set(true);
                         System.out.println("Computed yOffset: " + yOffset.get());
     
                         // Place the blocks only if they haven't been placed yet
@@ -762,39 +778,28 @@ indexedBlocks = new ConcurrentHashMap<>();
                             blockLocation[2] = Integer.parseInt(coords[2]);
                         }
                     }
-                }
     
-                // Now process the other tiles
-                for (Map.Entry<String, Map<String, Object>> tileEntry : indexedBlocks.entrySet()) {
-                    String tileKey = tileEntry.getKey();
-                    if (tileKey.equals(initialTileKeyFinal)) {
-                        continue; // Already processed
-                    }
+                    // Process other tiles
+                    indexedBlocks.forEach((tileKey, indexMap) -> {
+                        if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !(boolean) indexMap.get("isPlaced")) {
+                            Map<String, Material> blockMap = (Map<String, Material>) indexMap.get("blocks");
+                            placeBlocks(world, blockMap, yOffset.get());
+                            indexMap.put("isPlaced", true); // Mark as placed
+                        }
+                    });
     
-                    Map<String, Object> indexMap1 = tileEntry.getValue();
+                    System.out.println("Chunk regeneration completed.");
+                    callback.accept(blockLocation);
+                // });
     
-                    if (indexMap1 != null && !(boolean) indexMap1.get("isPlaced")) {
-                        // Place the blocks here
-                        indexMap1.put("isPlaced", true); // Mark as placed
-    
-                        Map<String, Material> blockMap1 = (Map<String, Material>) indexMap1.get("blocks");
-    
-                        // Use the same yOffset
-                        placeBlocks(world, blockMap1, yOffset.get());
-                    }
-                }
-    
-                System.out.println("JSON generated.");
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+                int[] blockLocation = new int[]{210, 70, 0}; // Default location
                 callback.accept(blockLocation);
-    
-            });
-    
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-            int[] blockLocation = new int[]{210, 70, 0}; // Default location
-            callback.accept(blockLocation);
-        }
+            }
+        });
     }
+    
     
 
 // Helper method to place blocks
@@ -831,7 +836,29 @@ private void placeBlocks(World world, Map<String, Material> blockMap, int yOffse
         int localX = newX & 15;
         int localZ = newZ & 15;
 
-        chunk.getBlock(localX, newY, localZ).setType(blockEntry.getValue(), false);
+        // chunk.getBlock(localX, newY, localZ).setType(blockEntry.getValue(), false);
+        // BlockChanger.setSectionBlockAsynchronously(
+        //     chunk.getBlock(localX, newY, localZ).getLocation(), 
+        //     new ItemStack(blockEntry.getValue()), 
+        //     false
+        // );
+        // Ensure blockEntry.getValue() is valid
+Material material = blockEntry.getValue();
+if (material == null || !material.isBlock()) {
+    throw new IllegalArgumentException("Invalid block material: " + material);
+}
+
+// Create ItemStack
+ItemStack itemStack = new ItemStack(material);
+
+// Pass the properly initialized ItemStack
+BlockChanger.setSectionBlockAsynchronously(
+    chunk.getBlock(localX, newY, localZ).getLocation(),
+    itemStack,
+    false
+);
+
+
         // Log the absolute coordinates
         System.out.println("Set block at " + newX + ", " + newY + ", " + newZ + " in chunk (" + blockChunkX + ", " + blockChunkZ + ") with material: " + blockEntry.getValue());
         
@@ -871,24 +898,146 @@ private void placeBlocks(World world, Map<String, Material> blockMap, int yOffse
         return new int[]{chunkX, chunkZ};
     }
 
-    public double[] blockToLatLng(double x, double z) {
-        double metersX = x * metersPerBlock;
-        double metersZ = z * metersPerBlock;
 
-        double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
-        double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
+    private double sinLat0, cosLat0, sinLon0, cosLon0;
+    
+    private static final double a = 6378137.0; // Equatorial radius in meters
+    private static final double f = 1 / 298.257223563; // Flattening
+    private static final double b = a * (1 - f); // Polar radius
+    private static final double eSq = (a * a - b * b) / (a * a); // First eccentricity squared
+    private static final double eSqPrime = (a * a - b * b) / (b * b); // Second eccentricity squared
+    
 
-        return new double[]{lat, lng};
+
+    private double[] enuToEcef(double east, double north, double up) {
+        double sinLat0 = Math.sin(Math.toRadians(LAT_ORIGIN));
+        double cosLat0 = Math.cos(Math.toRadians(LAT_ORIGIN));
+        double sinLon0 = Math.sin(Math.toRadians(LNG_ORIGIN));
+        double cosLon0 = Math.cos(Math.toRadians(LNG_ORIGIN));
+    
+        double xEast = -sinLon0 * east - sinLat0 * cosLon0 * north + cosLat0 * cosLon0 * up;
+        double yNorth = cosLon0 * east - sinLat0 * sinLon0 * north + cosLat0 * sinLon0 * up;
+        double zUp = cosLat0 * north + sinLat0 * up;
+    
+        double xEcef = xEast + originEcef[0];
+        double yEcef = yNorth + originEcef[1];
+        double zEcef = zUp + originEcef[2];
+    
+        return new double[]{xEcef, yEcef, zEcef};
     }
+    
+
+    private double[] ecefToLatLng(double x, double y, double z) {
+        double longitude = Math.atan2(y, x);
+    
+        double p = Math.sqrt(x * x + y * y);
+        double theta = Math.atan2(z * a, p * b);
+    
+        double sinTheta = Math.sin(theta);
+        double cosTheta = Math.cos(theta);
+    
+        double latitude = Math.atan2(
+            z + eSqPrime * b * sinTheta * sinTheta * sinTheta,
+            p - eSq * a * cosTheta * cosTheta * cosTheta
+        );
+    
+        // Convert radians to degrees
+        latitude = Math.toDegrees(latitude);
+        longitude = Math.toDegrees(longitude);
+    
+        return new double[]{latitude, longitude};
+    }
+    
+    private double[] latLngToEcef(double lat, double lon) {
+        double latRad = Math.toRadians(lat);
+        double lonRad = Math.toRadians(lon);
+    
+        double N = a / Math.sqrt(1 - eSq * Math.sin(latRad) * Math.sin(latRad));
+    
+        double x = N * Math.cos(latRad) * Math.cos(lonRad);
+        double y = N * Math.cos(latRad) * Math.sin(lonRad);
+        double z = (N * (1 - eSq)) * Math.sin(latRad);
+    
+        return new double[]{x, y, z};
+    }
+    
+
+    private double[] ecefToEnu(double xEcef, double yEcef, double zEcef) {
+        double sinLat0 = Math.sin(Math.toRadians(LAT_ORIGIN));
+        double cosLat0 = Math.cos(Math.toRadians(LAT_ORIGIN));
+        double sinLon0 = Math.sin(Math.toRadians(LNG_ORIGIN));
+        double cosLon0 = Math.cos(Math.toRadians(LNG_ORIGIN));
+    
+        double dx = xEcef - originEcef[0];
+        double dy = yEcef - originEcef[1];
+        double dz = zEcef - originEcef[2];
+    
+        double east = -sinLon0 * dx + cosLon0 * dy;
+        double north = -sinLat0 * cosLon0 * dx - sinLat0 * sinLon0 * dy + cosLat0 * dz;
+        double up = cosLat0 * cosLon0 * dx + cosLat0 * sinLon0 * dy + sinLat0 * dz;
+    
+        return new double[]{east, north, up};
+    }
+    
+    
+    
+    public double[] blockToLatLng(double x, double z) {
+
+        // originEcef = latLngToEcef(LAT_ORIGIN, LNG_ORIGIN);
+        // System.out.println("EEE Origin ECEF: " + Arrays.toString(originEcef));
+
+        if(originEcef == null) {
+            System.out.println("Block Origin ECEF not set.");
+            return new double[]{210, 70, 0};
+        }
+
+        double lat0Rad = Math.toRadians(LNG_ORIGIN);
+        double lon0Rad = Math.toRadians(LAT_ORIGIN);
+        sinLat0 = Math.sin(lat0Rad);
+        cosLat0 = Math.cos(lat0Rad);
+        sinLon0 = Math.sin(lon0Rad);
+        cosLon0 = Math.cos(lon0Rad);
+
+        // Minecraft block coordinates correspond to ENU east and north
+        double east = x * metersPerBlock;
+        double north = -z * metersPerBlock; // North coordinate in meters
+        double up = 0; // Assuming ground level
+    
+        // Convert ENU to ECEF
+        double[] ecef = enuToEcef(east, north, up);
+    
+        // Convert ECEF to latitude and longitude
+        return ecefToLatLng(ecef[0], ecef[1], ecef[2]);
+    }
+    
 
     public int[] latLngToBlock(double lat, double lng) {
-        double[] meters = latLngToMeters(lat, lng);
-        double x = meters[0] / metersPerBlock;
-        double z = meters[1] / metersPerBlock;
 
-        return new int[]{(int) x, (int) z};
+        if(originEcef == null) {
+            System.out.println("Origin ECEF not set.");
+            return new int[]{0, 0};
+        }
+
+        double lat0Rad = Math.toRadians(LAT_ORIGIN);
+        double lon0Rad = Math.toRadians(LNG_ORIGIN);
+        sinLat0 = Math.sin(lat0Rad);
+        cosLat0 = Math.cos(lat0Rad);
+        sinLon0 = Math.sin(lon0Rad);
+        cosLon0 = Math.cos(lon0Rad);
+
+        // Convert latitude and longitude to ECEF
+        double[] ecef = latLngToEcef(lat, lng);
+    
+        // Convert ECEF to ENU
+        double[] enu = ecefToEnu(ecef[0], ecef[1], ecef[2]);
+    
+        // Minecraft block coordinates correspond to ENU east and north
+        int x = (int) enu[0]; // East coordinate in meters
+        int z = (int) enu[1]; // North coordinate in meters
+    
+        return new int[]{x, z};
     }
-
+    
 
     @Override
     public boolean shouldGenerateNoise() {
