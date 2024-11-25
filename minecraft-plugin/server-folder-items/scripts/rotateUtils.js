@@ -4,14 +4,12 @@ const { KHRDracoMeshCompression, KHRMaterialsUnlit } = require('@gltf-transform/
 const draco3d = require('draco3dgltf');
 const fs = require('fs');
 
-// Function to normalize a vector
 function normalize(vec) {
     const length = Math.hypot(vec[0], vec[1], vec[2]);
     return length > 0 ? vec.map(v => v / length) : vec;
 }
 
-// Main function to rotate and save the GLB file
-async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslationPath) {
+async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslation) {
     const io = new NodeIO()
         .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit])
         .registerDependencies({
@@ -22,12 +20,6 @@ async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPat
     const doc = await io.read(inputFilePath);
     const nodes = doc.getRoot().listNodes();
 
-    let originTranslation = null;
-    if (originTranslationPath && fs.existsSync(originTranslationPath)) {
-        // Read originTranslation from file
-        originTranslation = JSON.parse(fs.readFileSync(originTranslationPath, 'utf-8'));
-    }
-
     const tileTranslations = [];
 
     nodes.forEach((node) => {
@@ -35,12 +27,9 @@ async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPat
 
         if (translation) {
             if (!originTranslation) {
-                // If originTranslation is not set, this is the first tile
+                // This is the first tile; set originTranslation and output it
                 originTranslation = translation.slice();
-                // Save originTranslation to file
-                if (originTranslationPath) {
-                    fs.writeFileSync(originTranslationPath, JSON.stringify(originTranslation));
-                }
+                console.log(`ORIGIN_TRANSLATION ${JSON.stringify(originTranslation)}`);
             }
 
             // Compute relative translation
@@ -117,17 +106,27 @@ async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPat
 
 // Execute the function with command-line arguments
 (async () => {
-    const [inputFilePath, outputFilePath, positionOutputPath, originTranslationPath] = process.argv.slice(2);
+    const args = process.argv.slice(2);
 
-    if (!inputFilePath || !outputFilePath || !positionOutputPath || !originTranslationPath) {
+    if (args.length < 3) {
         console.error(
-            "Usage: node rotateUtils.js <inputFilePath> <outputFilePath> <positionOutputPath> <originTranslationPath>"
+            "Usage: node rotateUtils.js <inputFilePath> <outputFilePath> <positionOutputPath> [originTranslation]"
         );
         process.exit(1);
     }
 
+    const inputFilePath = args[0];
+    const outputFilePath = args[1];
+    const positionOutputPath = args[2];
+    let originTranslation = null;
+
+    if (args[3]) {
+        // Parse originTranslation from JSON string
+        originTranslation = JSON.parse(args[3]);
+    }
+
     try {
-        await rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslationPath);
+        await rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPath, originTranslation);
         console.log(`Rotated GLB saved to ${outputFilePath}`);
         console.log(`Position data saved to ${positionOutputPath}`);
     } catch (error) {

@@ -273,27 +273,32 @@ private Material getMaterial(String blockName) {
 
     private void downloadAndProcessTiles(int chunkX, int chunkZ) {
         try {
-            // Print "Calling downloadTiles" to the console
             System.out.println("Calling downloadTiles");
-
-            // String outputDirectory = "tiles" + chunkX + "_" + chunkZ;
+    
             String outputDirectory = SESSION_DIR;  // Use the session directory for all tiles
-            
+    
             tileDownloader.setCoordinates(LNG_ORIGIN, LAT_ORIGIN);
-            tileDownloader.downloadTiles(outputDirectory);
-            runGpuVoxelizer(outputDirectory);
-            loadIndexedJson(new File(outputDirectory));
+            List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
+    
+            if (downloadedTileFiles.isEmpty()) {
+                System.out.println("No new tiles were downloaded.");
+                return;
+            }
+    
+            // Run voxelizer only on the downloaded tiles
+            runGpuVoxelizer(outputDirectory, downloadedTileFiles);
+    
+            // Load only the new tiles
+            loadIndexedJson(new File(outputDirectory), downloadedTileFiles);
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
+    
 
-private void runGpuVoxelizer(String directory) throws IOException, InterruptedException {
-    File dir = new File(directory);
-    File[] files = dir.listFiles((d, name) -> name.endsWith(".glb"));
-
-    if (files != null) {
-        for (File file : files) {
+    private void runGpuVoxelizer(String directory, List<String> tileFiles) throws IOException, InterruptedException {
+        for (String tileFileName : tileFiles) {
+            File file = new File(directory, tileFileName);
             String baseName = file.getName();
             String outputJson = baseName + "_128.json";
             File outputFile = new File(directory, outputJson);
@@ -327,7 +332,7 @@ private void runGpuVoxelizer(String directory) throws IOException, InterruptedEx
             System.out.println("Voxelization completed: " + outputJson);
         }
     }
-}
+
 
 
 private static final double MAX_COLOR_DISTANCE = 30.0;
@@ -376,45 +381,17 @@ private double colorDistance(Color c1, Color c2) {
 }
 
 
-private void loadIndexedJson(File directory) throws IOException {
-    File[] jsonFiles = directory.listFiles((dir, name) -> name.endsWith(".json") && !name.contains("_position"));
-    if (jsonFiles != null) {
-        for (File file : jsonFiles) {
-            try {
-
-            String baseName = file.getName().replace(".json", "");
+private void loadIndexedJson(File directory, List<String> tileFiles) throws IOException {
+    for (String tileFileName : tileFiles) {
+            String baseName = tileFileName;//.replace(".glb", "");
+            File jsonFile = new File(directory, baseName + "_128.json");
 
             // If basename already exists, skip loading the file
             if (indexedBlocks.containsKey(baseName)) {
                 continue;
             }
 
-
-            // // print json files
-            // for (int i = 0; i < jsonFiles.length; i++) {
-            //     System.out.println(jsonFiles[i].getName());
-            // }
-
-            // // remove files from jSonfiles list except for the one that starts with ea7
-            // for (int i = 0; i < jsonFiles.length; i++) {
-            //     if (jsonFiles[i] != null && !jsonFiles[i].getName().startsWith("ea7")) {
-            //         jsonFiles[i] = null;
-            //     }
-            // }
-
-            // // print json files
-            // // print divier
-            // System.out.println("=====================================");
-            // for (int i = 0; i < jsonFiles.length; i++) {
-            //     if (jsonFiles[i] != null) {
-            //         System.out.println(jsonFiles[i].getName());
-            //     }
-            // }
-
-
-
-
-            try (FileReader reader = new FileReader(file)) {
+            try (FileReader reader = new FileReader(jsonFile)) {
                 JSONObject json = new JSONObject(new JSONTokener(reader));
 
                 File positionFile = new File(directory, baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
@@ -478,15 +455,11 @@ private void loadIndexedJson(File directory) throws IOException {
 
                 indexedBlocks.putIfAbsent(baseName, indexMap);
             } catch (Exception e) {
-                System.out.println("Error loading JSON file: " + file.getName());
+                System.out.println("Error loading JSON file: " + jsonFile.getName());
                 e.printStackTrace();
             }
-                        } catch (Exception e) {
-                System.out.println("Error removing files from jsonFiles list");
-            }
-
+            
         }
-    }
 }
 
 public void loadJson(String filename, double scaleX, double scaleY, double scaleZ, double offsetX, double offsetY, double offsetZ) throws IOException {
@@ -706,17 +679,25 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 2. Set the coordinates for the specific tile
                 double[] latLng = minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
                 tileDownloader.setCoordinates(latLng[1], latLng[0]); // lng, lat
-                tileDownloader.setRadius(100);
+                tileDownloader.setRadius(25);
     
                 // 3. Download only one tile
-                tileDownloader.downloadTiles(outputDirectory);
-    
+                // tileDownloader.downloadTiles(outputDirectory);
+                List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
+
+                if (downloadedTileFiles.isEmpty()) {
+                    System.out.println("No new tiles were downloaded.");
+                    return;
+                }
+
                 // 4. Voxelize the downloaded tile
-                runGpuVoxelizer(outputDirectory);
-    
+                // runGpuVoxelizer(outputDirectory);
+                runGpuVoxelizer(outputDirectory, downloadedTileFiles);
+
                 // 5. Load the JSON for the specific tile
                 Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
-                loadIndexedJson(new File(outputDirectory));
+                // loadIndexedJson(new File(outputDirectory));
+                loadIndexedJson(new File(outputDirectory), downloadedTileFiles);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
     

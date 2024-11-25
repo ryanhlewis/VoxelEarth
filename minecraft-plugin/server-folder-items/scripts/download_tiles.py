@@ -8,6 +8,7 @@ import sys
 
 import requests
 from tqdm import tqdm
+import json
 
 
 def _get_elevation(lon, lat, key):
@@ -19,7 +20,7 @@ def _get_elevation(lon, lat, key):
         }
     )
     if not res.ok:
-        raise RuntimeError(f"response not ok: {res.status_code}, {res.text}")
+        raise RuntimeError(f"response not ok: {response.status_code}, {response.text}")
     data = res.json()
     if not data["status"] == "OK" or "results" not in data:
         raise RuntimeError(f"status not ok: {data['status']}, {data}")
@@ -38,18 +39,30 @@ def calculate_sha256(file_path):
             sha256.update(chunk)
     return sha256.hexdigest()
 
-def rotate_glb(input_file, output_file, position_output_file, origin_translation_file):
+def rotate_glb(input_file, output_file, position_output_file, origin_translation=None):
     command = [
-        'node', 'scripts/rotateUtils.js', 
-        input_file, output_file, position_output_file, origin_translation_file
+        'node', 'scripts/rotateUtils.js',
+        input_file, output_file, position_output_file
     ]
+    if origin_translation:
+        command.append(json.dumps(origin_translation))
+
     result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode != 0:
         print(f"Rotation failed: {result.stderr}")
         sys.exit(result.returncode)
 
-    print(result.stdout)
+    # Parse origin_translation from the output
+    origin_translation_output = None
+    for line in result.stdout.splitlines():
+        if line.startswith('ORIGIN_TRANSLATION'):
+            origin_translation_str = line[len('ORIGIN_TRANSLATION'):].strip()
+            origin_translation_output = json.loads(origin_translation_str)
+            break
+
+    return origin_translation_output
+
 
 
 if __name__ == "__main__":
@@ -78,42 +91,50 @@ if __name__ == "__main__":
     elevation = _get_elevation(*args.coords, args.api_key)
 
     api = TileApi(key=args.api_key)
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
+
     print("Traversing tile hierarchy...")
     tiles = list(tqdm(api.get(Sphere(
         cartesian_from_degrees(*args.coords, elevation),
         args.radius
-    ))))
-
-    outdir = Path(args.out)
-    outdir.mkdir(parents=True, exist_ok=True)
+    ), output_dir=args.out)))
+    
     origin_translation_file = 'origin_translation.json'
 
+    origin_translation = None
+    downloaded_tiles = []  # Initialize the list to keep track of downloaded tiles
+
     print("Downloading and rotating tiles...")
-    for i, t in tqdm(enumerate(tiles), total=len(tiles)):
-        input_path = outdir / f"{t.basename}.glb"
+    for i, tile in tqdm(enumerate(tiles), total=len(tiles)):
+        rotated_file_path = outdir / f"{tile.hash}.glb"
+
+        if rotated_file_path.exists():
+            print(f"Rotated tile {rotated_file_path.name} already exists. Skipping.")
+            downloaded_tiles.append(rotated_file_path.name)
+            continue
+
+        print(f"Downloading tile {tile.basename}")
+        input_path = outdir / f"{tile.hash}_downloaded.glb"
 
         with open(input_path, "wb") as f:
-            f.write(t.data)
+            f.write(tile.data)
 
-        # Rotate flat
-        sha256_hash = calculate_sha256(input_path)
-        old_file_path = outdir / f"{sha256_hash}_old.glb"
-        rotated_file_path = outdir / f"{sha256_hash}.glb"
-        position_output_file = outdir / f"{sha256_hash}_position.json"
-
-        # Rename the original file with the SHA-256 hash and "_old"
-        input_path.rename(old_file_path)
-
-        # Rotate the GLB and save as the SHA-256 filename
-        print(f"Rotating {t.basename} to {rotated_file_path.name}")
+        position_output_file = outdir / f"{tile.hash}_position.json"
+        print(f"Rotating {tile.basename} to {rotated_file_path.name}")
         rotate_glb(
-            str(old_file_path), 
-            str(rotated_file_path), 
-            str(position_output_file), 
-            str(origin_translation_file)
+            str(input_path),
+            str(rotated_file_path),
+            str(position_output_file),
+            origin_translation
         )
 
-        # Delete the old file after successful rotation
-        if old_file_path.exists():
-            old_file_path.unlink()
-            print(f"Deleted {old_file_path.name}")
+        if input_path.exists():
+            input_path.unlink()
+            print(f"Deleted {input_path.name}")
+
+        # Add the rotated tile filename to the list
+        downloaded_tiles.append(rotated_file_path.name)
+
+    # At the very end, output the list with a unique marker
+    print("DOWNLOADED_TILES:", json.dumps(downloaded_tiles))

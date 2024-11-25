@@ -1,6 +1,9 @@
 package com.example.voxelearth;
 
 import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONArray;
 
 public class TileDownloader {
     private String apiKey;
@@ -25,7 +28,9 @@ public class TileDownloader {
         this.radius = radius;
     }
 
-    public void downloadTiles(String outputDirectory) throws IOException, InterruptedException {
+    public List<String> downloadTiles(String outputDirectory) throws IOException, InterruptedException {
+        List<String> downloadedTiles = new ArrayList<>();
+
         // Construct the command
         String[] command = {
             "python3",
@@ -41,12 +46,20 @@ public class TileDownloader {
 
         // Run the command using Runtime.exec()
         Process process = Runtime.getRuntime().exec(command);
-        
+
         // Capture the output from the command
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         String line;
         while ((line = reader.readLine()) != null) {
-            System.out.println(line);
+            System.out.println(line);  // Keep printing logs for debugging
+            if (line.startsWith("DOWNLOADED_TILES:")) {
+                String jsonString = line.substring("DOWNLOADED_TILES:".length()).trim();
+                JSONArray jsonArray = new JSONArray(jsonString);
+                for (int i = 0; i < jsonArray.length(); i++) {
+                    String tileFilename = jsonArray.getString(i);
+                    downloadedTiles.add(tileFilename);
+                }
+            }
         }
 
         // Capture any errors from the command
@@ -62,5 +75,7 @@ public class TileDownloader {
         }
 
         System.out.println("[I/O] Python script executed successfully.");
+
+        return downloadedTiles;  // Return the list of downloaded tiles
     }
 }
