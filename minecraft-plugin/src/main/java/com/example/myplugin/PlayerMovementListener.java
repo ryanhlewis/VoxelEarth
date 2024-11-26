@@ -5,10 +5,14 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.entity.Player;
 import org.bukkit.Location;
+import java.util.HashMap;
+import java.util.Map;
 
 public class PlayerMovementListener implements Listener {
 
     private VoxelEarth plugin;
+    private Map<Player, Location> lastLoadedLocations = new HashMap<>();
+    private static final double LOAD_THRESHOLD = 50.0;
 
     public PlayerMovementListener(VoxelEarth plugin) {
         this.plugin = plugin;
@@ -33,10 +37,33 @@ public class PlayerMovementListener implements Listener {
         // Get the player's current position (XYZ)
         double x = to.getX();
         double z = to.getZ();
-        System.out.println("Player moved to: " + x + ", " + z);
-        double[] latLng = generator.blockToLatLng(x, z);
-        System.out.println("Player's latitude and longitude: " + latLng[0] + ", " + latLng[1]);
+
+        // Convert player's position to tile coordinates
+        int tileX = (int) Math.floor(x / 16);
+        int tileZ = (int) Math.floor(z / 16);
+        double[] latLng = generator.minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
+
+        // System.out.println("Player moved to: " + x + ", " + z);
+        // double[] latLng = generator.blockToLatLng(x, z);
+        // System.out.println("Player's latitude and longitude: " + latLng[0] + ", " + latLng[1]);
     
+        // Get the last location where tiles were loaded for this player
+        Location lastLocation = lastLoadedLocations.get(player);
+
+        // If no tiles have been loaded yet, or if the player has moved beyond the threshold
+        if (lastLocation == null || lastLocation.distance(to) >= LOAD_THRESHOLD) {
+            // Update the last loaded location
+            lastLoadedLocations.put(player, to.clone());
+
+            // Loading chunks at
+            System.out.println("Player loaded new latlng: " + latLng[0] + ", " + latLng[1]);
+
+            // Load the chunk asynchronously
+            generator.loadChunk(tileX, tileZ, (blockLocation) -> {
+            });
+
+        }
+
 
         // Check if the player is near the edge of loaded tiles
         // if (generator.isNearEdge(x, z)) {

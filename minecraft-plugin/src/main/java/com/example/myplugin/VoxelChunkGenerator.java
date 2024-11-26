@@ -295,7 +295,7 @@ private Material getMaterial(String blockName) {
             runGpuVoxelizer(outputDirectory, downloadedTileFiles);
     
             // Load only the new tiles
-            loadIndexedJson(new File(outputDirectory), downloadedTileFiles);
+            loadIndexedJson(new File(outputDirectory), downloadedTileFiles, chunkX, chunkZ);
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
@@ -414,7 +414,7 @@ private double colorDistance(Color c1, Color c2) {
 }
 
 
-private void loadIndexedJson(File directory, List<String> tileFiles) throws IOException {
+private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ) throws IOException {
     // Determine the number of threads; you can adjust this based on your system's capabilities
     int numThreads = Runtime.getRuntime().availableProcessors();
     ExecutorService executor = Executors.newFixedThreadPool(numThreads);
@@ -434,7 +434,7 @@ private void loadIndexedJson(File directory, List<String> tileFiles) throws IOEx
         Future<?> future = executor.submit(() -> {
             try {
                 // Your existing code to process each JSON file
-                processJsonFile(jsonFile, baseName);
+                processJsonFile(jsonFile, baseName, chunkX, chunkZ);
             } catch (Exception e) {
                 System.out.println("Error loading JSON file: " + jsonFile.getName());
                 e.printStackTrace();
@@ -456,7 +456,7 @@ private void loadIndexedJson(File directory, List<String> tileFiles) throws IOEx
     executor.shutdown();
 }
 
-private void processJsonFile(File jsonFile, String baseName) throws IOException {
+private void processJsonFile(File jsonFile, String baseName, int chunkX, int chunkZ) throws IOException {
     try (FileReader reader = new FileReader(jsonFile)) {
         JSONObject json = new JSONObject(new JSONTokener(reader));
 
@@ -469,9 +469,9 @@ private void processJsonFile(File jsonFile, String baseName) throws IOException 
                     JSONObject positionData = positionArray.getJSONObject(0);
                     JSONArray translationArray = positionData.getJSONArray("translation");
 
-                    tileTranslation[0] = (translationArray.getDouble(0) * scaleX) + offsetX;
+                    tileTranslation[0] = (translationArray.getDouble(0) * scaleX) + offsetX + (chunkX * 16);
                     tileTranslation[1] = (translationArray.getDouble(1) * scaleY) + offsetY;
-                    tileTranslation[2] = (translationArray.getDouble(2) * scaleZ) + offsetZ;
+                    tileTranslation[2] = (translationArray.getDouble(2) * scaleZ) + offsetZ + (chunkZ * 16);
                 }
             }
         }
@@ -742,7 +742,7 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 2. Set the coordinates for the specific tile
                 double[] latLng = minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
                 tileDownloader.setCoordinates(latLng[1], latLng[0]); // lng, lat
-                tileDownloader.setRadius(100);
+                tileDownloader.setRadius(50);
     
                 // 3. Download only one tile
                 // tileDownloader.downloadTiles(outputDirectory);
@@ -760,7 +760,7 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 5. Load the JSON for the specific tile
                 Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
                 // loadIndexedJson(new File(outputDirectory));
-                loadIndexedJson(new File(outputDirectory), downloadedTileFiles);
+                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, tileX, tileZ);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
     
@@ -848,6 +848,8 @@ indexedBlocks = new ConcurrentHashMap<>();
 
 // Helper method to place blocks
 private void placeBlocks(World world, Map<String, Material> blockMap, int yOffset) {
+    Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+
     for (Map.Entry<String, Material> blockEntry : blockMap.entrySet()) {
         String[] parts = blockEntry.getKey().split(",");
         int originalX = Integer.parseInt(parts[0]);
@@ -887,27 +889,48 @@ private void placeBlocks(World world, Map<String, Material> blockMap, int yOffse
         //     false
         // );
         // Ensure blockEntry.getValue() is valid
-Material material = blockEntry.getValue();
-if (material == null || !material.isBlock()) {
-    throw new IllegalArgumentException("Invalid block material: " + material);
-}
+        Material material = blockEntry.getValue();
+        if (material == null || !material.isBlock()) {
+            throw new IllegalArgumentException("Invalid block material: " + material);
+        }
 
-// Create ItemStack
-ItemStack itemStack = new ItemStack(material);
+        // Create ItemStack
+        ItemStack itemStack = new ItemStack(material);
 
-// Pass the properly initialized ItemStack
-BlockChanger.setSectionBlockAsynchronously(
-    chunk.getBlock(localX, newY, localZ).getLocation(),
-    itemStack,
-    false
-);
+        // Pass the properly initialized ItemStack
+        BlockChanger.setSectionBlockAsynchronously(
+            chunk.getBlock(localX, newY, localZ).getLocation(),
+            itemStack,
+            false
+        );
 
 
         // Log the absolute coordinates
         System.out.println("Set block at " + newX + ", " + newY + ", " + newZ + " in chunk (" + blockChunkX + ", " + blockChunkZ + ") with material: " + blockEntry.getValue());
+
         
+        modifiedChunks.add(chunk);
+
+    }
+
+    updateLighting(world, modifiedChunks);
+
+}
+
+private void updateLighting(World world, Set<Chunk> modifiedChunks) {
+    for (Chunk chunk : modifiedChunks) {
+        int chunkX = chunk.getX();
+        int chunkZ = chunk.getZ();
+
+        // Recalculate lighting for the chunk
+        world.refreshChunk(chunkX, chunkZ);
+
+        // Alternatively, trigger light updates for specific blocks
+        // This can be more efficient if you have specific blocks
+        // chunk.getWorld().getBlockAt(chunkX << 4, 0, chunkZ << 4).getChunk().relightChunk();
     }
 }
+
 
     private static final double EARTH_RADIUS = 6378137.0;  // in meters
     private static final int CHUNK_SIZE = 16;  // Each Minecraft chunk is 16x16 blocks
@@ -921,7 +944,7 @@ BlockChanger.setSectionBlockAsynchronously(
 
     // Convert Minecraft chunks to lat/lng
     public double[] minecraftToLatLng(int chunkX, int chunkZ) {
-        double metersPerChunk = metersPerBlock * CHUNK_SIZE;
+        double metersPerChunk = (metersPerBlock / 4) * CHUNK_SIZE;
         double metersX = chunkX * metersPerChunk;
         double metersZ = chunkZ * metersPerChunk;
 
@@ -934,7 +957,7 @@ BlockChanger.setSectionBlockAsynchronously(
     // Convert lat/lng to Minecraft chunk coordinates
     public int[] latLngToMinecraft(double lat, double lng) {
         double[] meters = latLngToMeters(lat, lng);
-        double metersPerChunk = metersPerBlock * CHUNK_SIZE;
+        double metersPerChunk = (metersPerBlock / 4) * CHUNK_SIZE;
 
         int chunkX = (int) Math.floor(meters[0] / metersPerChunk);
         int chunkZ = (int) Math.floor(meters[1] / metersPerChunk);
