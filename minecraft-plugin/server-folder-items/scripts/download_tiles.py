@@ -100,8 +100,6 @@ if __name__ == "__main__":
         args.radius
     ), output_dir=args.out)))
     
-    origin_translation_file = 'origin_translation.json'
-
     origin_translation = None
     downloaded_tiles = []  # Initialize the list to keep track of downloaded tiles
 
@@ -112,6 +110,7 @@ if __name__ == "__main__":
         if rotated_file_path.exists():
             print(f"Rotated tile {rotated_file_path.name} already exists. Skipping.")
             downloaded_tiles.append(rotated_file_path.name)
+            # print(f"DOWNLOADED_TILES:", json.dumps(downloaded_tiles))
             continue
 
         print(f"Downloading tile {tile.basename}")
@@ -122,12 +121,19 @@ if __name__ == "__main__":
 
         position_output_file = outdir / f"{tile.hash}_position.json"
         print(f"Rotating {tile.basename} to {rotated_file_path.name}")
-        rotate_glb(
+
+        # Pass origin_translation to rotate_glb
+        origin_translation_output = rotate_glb(
             str(input_path),
             str(rotated_file_path),
             str(position_output_file),
             origin_translation
         )
+
+        # Capture origin_translation from the first tile
+        if origin_translation is None and origin_translation_output:
+            origin_translation = origin_translation_output
+            print(f"Captured origin_translation: {origin_translation}")
 
         if input_path.exists():
             input_path.unlink()

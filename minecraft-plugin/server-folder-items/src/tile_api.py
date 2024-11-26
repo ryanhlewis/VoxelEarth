@@ -3,7 +3,7 @@ from .tile import Tile
 
 from urllib.parse import urlparse, parse_qs
 import requests
-
+import os
 
 def _parse(root, target_volume):
     assert "contents" not in root, "contents array not supported"
@@ -23,7 +23,7 @@ class TileApi:
         self.api = api
         self.session = None
 
-    def get(self, target_volume, uri="/v1/3dtiles/root.json"):
+    def get(self, target_volume, uri="/v1/3dtiles/root.json", output_dir=None):
         fetcher = lambda: requests.get(
             f"{self.api}{uri}",
             params={"key": self.key, "session": self.session},
@@ -31,7 +31,14 @@ class TileApi:
 
         # We got a glTF tile. Don't immediately download it, but end the recursion here.
         if uri.endswith(".glb"):
-            yield Tile(uri=uri, download_thunk=fetcher)
+            tile = Tile(uri=uri, download_thunk=fetcher)
+            tile_path = os.path.join(output_dir, f"{tile.hash}.glb")
+            if not os.path.exists(tile_path):
+                yield tile
+            else:
+                # Don't redownload GLB files in the same session (similar to online maps)
+                print(f"Tile {tile.hash} already exists. Skipping API call.")
+                yield tile
             return
 
         response = fetcher()
@@ -53,6 +60,6 @@ class TileApi:
                 # child of the initial root request)
                 self.session = parse_qs(uri.query).get("session", [self.session])[0]
                 # Recurse into child tiles
-                yield from self.get(target_volume, uri.path)
+                yield from self.get(target_volume, uri.path, output_dir)
             else:
                 raise RuntimeError(f"unsupported content: {content}")

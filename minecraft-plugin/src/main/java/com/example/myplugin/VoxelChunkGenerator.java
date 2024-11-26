@@ -59,6 +59,12 @@ import java.util.function.Consumer;
 // blockchanger dep
 import org.bukkit.inventory.ItemStack;
 
+// parallel
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
+
 public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final double LAT_ORIGIN = 50.081033020810736;
@@ -297,42 +303,69 @@ private Material getMaterial(String blockName) {
     
 
     private void runGpuVoxelizer(String directory, List<String> tileFiles) throws IOException, InterruptedException {
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    
+        List<Future<?>> futures = new ArrayList<>();
+    
         for (String tileFileName : tileFiles) {
-            File file = new File(directory, tileFileName);
-            String baseName = file.getName();
-            String outputJson = baseName + "_128.json";
-            File outputFile = new File(directory, outputJson);
-
-            // Check if the _128.json file already exists
-            if (outputFile.exists()) {
-                System.out.println("Skipping voxelization, " + outputJson + " already exists.");
-                continue; // Skip processing this file
-            }
-
-            System.out.println("Running voxelizer on " + file.getName());
-
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    "./cuda_voxelizer",
-                    "-f", file.getAbsolutePath(),
-                    "-o", "json",
-                    "-s", "128",
-                    "-output", directory
-            );
-
-            processBuilder.directory(new File(System.getProperty("user.dir")));
-            processBuilder.redirectErrorStream(true);
-
-            Process process = processBuilder.start();
-            int exitCode = process.waitFor();
-
-            if (exitCode != 0) {
-                throw new RuntimeException("Voxelizer process failed with exit code " + exitCode);
-            }
-
-            System.out.println("Voxelization completed: " + outputJson);
+            Future<?> future = executor.submit(() -> {
+                try {
+                    processVoxelizerFile(directory, tileFileName);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+            futures.add(future);
         }
+    
+        // Wait for all tasks to complete
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+    
+        executor.shutdown();
     }
-
+    
+    private void processVoxelizerFile(String directory, String tileFileName) throws IOException, InterruptedException {
+        File file = new File(directory, tileFileName);
+        String baseName = file.getName();
+        String outputJson = baseName + "_128.json";
+        File outputFile = new File(directory, outputJson);
+    
+        // Check if the _128.json file already exists
+        if (outputFile.exists()) {
+            System.out.println("Skipping voxelization, " + outputJson + " already exists.");
+            return; // Skip processing this file
+        }
+    
+        System.out.println("Running voxelizer on " + file.getName());
+    
+        ProcessBuilder processBuilder = new ProcessBuilder(
+                "./cuda_voxelizer",
+                "-f", file.getAbsolutePath(),
+                "-o", "json",
+                "-s", "128",
+                "-output", directory
+        );
+    
+        processBuilder.directory(new File(System.getProperty("user.dir")));
+        processBuilder.redirectErrorStream(true);
+    
+        Process process = processBuilder.start();
+        int exitCode = process.waitFor();
+    
+        if (exitCode != 0) {
+            throw new RuntimeException("Voxelizer process failed with exit code " + exitCode);
+        }
+    
+        System.out.println("Voxelization completed: " + outputJson);
+    }
+    
 
 
 private static final double MAX_COLOR_DISTANCE = 30.0;
@@ -382,85 +415,115 @@ private double colorDistance(Color c1, Color c2) {
 
 
 private void loadIndexedJson(File directory, List<String> tileFiles) throws IOException {
+    // Determine the number of threads; you can adjust this based on your system's capabilities
+    int numThreads = Runtime.getRuntime().availableProcessors();
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+    List<Future<?>> futures = new ArrayList<>();
+
     for (String tileFileName : tileFiles) {
-            String baseName = tileFileName;//.replace(".glb", "");
-            File jsonFile = new File(directory, baseName + "_128.json");
+        String baseName = tileFileName;
+        File jsonFile = new File(directory, baseName + "_128.json");
 
-            // If basename already exists, skip loading the file
-            if (indexedBlocks.containsKey(baseName)) {
-                continue;
-            }
+        // If baseName already exists, skip loading the file
+        if (indexedBlocks.containsKey(baseName)) {
+            continue;
+        }
 
-            try (FileReader reader = new FileReader(jsonFile)) {
-                JSONObject json = new JSONObject(new JSONTokener(reader));
-
-                File positionFile = new File(directory, baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
-                double[] tileTranslation = new double[3];
-                if (positionFile.exists()) {
-                    try (FileReader posReader = new FileReader(positionFile)) {
-                        JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
-                        if (positionArray.length() > 0) {
-                            JSONObject positionData = positionArray.getJSONObject(0);
-                            JSONArray translationArray = positionData.getJSONArray("translation");
-
-                            tileTranslation[0] = (translationArray.getDouble(0) * scaleX) + offsetX;
-                            tileTranslation[1] = (translationArray.getDouble(1) * scaleY) + offsetY;
-                            tileTranslation[2] = (translationArray.getDouble(2) * scaleZ) + offsetZ;
-                        }
-                    }
-                }
-
-                if (!json.has("blocks") || !json.has("xyzi")) {
-                    continue;
-                }
-
-                JSONObject blocksObject = json.getJSONObject("blocks");
-                JSONArray xyziArray = json.getJSONArray("xyzi");
-                Map<String, Material> blockMap = new HashMap<>();
-
-                Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
-                Iterator<String> keys = blocksObject.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    int colorIndex = Integer.parseInt(key);
-                    JSONArray rgbaArray = blocksObject.getJSONArray(key);
-
-                    Material material = mapRgbaToMaterial(rgbaArray);
-                    colorIndexToMaterial.put(colorIndex, material);
-                }
-
-                for (int i = 0; i < xyziArray.length(); i++) {
-                    JSONArray xyziEntry = xyziArray.getJSONArray(i);
-                    int x = xyziEntry.getInt(0);
-                    int y = xyziEntry.getInt(1);
-                    int z = xyziEntry.getInt(2);
-                    int colorIndex = xyziEntry.getInt(3);
-
-                    // Swap axes and apply translation
-                    int translatedX = (int) ((x + tileTranslation[0]) );
-                    int translatedY = (int) ((y + tileTranslation[1]) );
-                    int translatedZ = (int) ((z + tileTranslation[2]) );
-
-                    String blockName = translatedX + "," + translatedY + "," + translatedZ;
-                    Material material = colorIndexToMaterial.get(colorIndex);
-
-                    if (material != null) {
-                        blockMap.put(blockName, material);
-                    }
-                }
-
-                HashMap<String, Object> indexMap = new HashMap<>();
-                indexMap.put("isPlaced", false); // Initialize to false
-                indexMap.put("blocks", blockMap);
-
-                indexedBlocks.putIfAbsent(baseName, indexMap);
+        // Submit a task for each JSON file
+        Future<?> future = executor.submit(() -> {
+            try {
+                // Your existing code to process each JSON file
+                processJsonFile(jsonFile, baseName);
             } catch (Exception e) {
                 System.out.println("Error loading JSON file: " + jsonFile.getName());
                 e.printStackTrace();
             }
-            
+        });
+        futures.add(future);
+    }
+
+    // Wait for all tasks to complete
+    for (Future<?> future : futures) {
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
         }
+    }
+
+    // Shutdown the executor
+    executor.shutdown();
 }
+
+private void processJsonFile(File jsonFile, String baseName) throws IOException {
+    try (FileReader reader = new FileReader(jsonFile)) {
+        JSONObject json = new JSONObject(new JSONTokener(reader));
+
+        File positionFile = new File(jsonFile.getParent(), baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
+        double[] tileTranslation = new double[3];
+        if (positionFile.exists()) {
+            try (FileReader posReader = new FileReader(positionFile)) {
+                JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
+                if (positionArray.length() > 0) {
+                    JSONObject positionData = positionArray.getJSONObject(0);
+                    JSONArray translationArray = positionData.getJSONArray("translation");
+
+                    tileTranslation[0] = (translationArray.getDouble(0) * scaleX) + offsetX;
+                    tileTranslation[1] = (translationArray.getDouble(1) * scaleY) + offsetY;
+                    tileTranslation[2] = (translationArray.getDouble(2) * scaleZ) + offsetZ;
+                }
+            }
+        }
+
+        if (!json.has("blocks") || !json.has("xyzi")) {
+            return;
+        }
+
+        JSONObject blocksObject = json.getJSONObject("blocks");
+        JSONArray xyziArray = json.getJSONArray("xyzi");
+        Map<String, Material> blockMap = new HashMap<>();
+
+        Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
+        Iterator<String> keys = blocksObject.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            int colorIndex = Integer.parseInt(key);
+            JSONArray rgbaArray = blocksObject.getJSONArray(key);
+
+            Material material = mapRgbaToMaterial(rgbaArray);
+            colorIndexToMaterial.put(colorIndex, material);
+        }
+
+        for (int i = 0; i < xyziArray.length(); i++) {
+            JSONArray xyziEntry = xyziArray.getJSONArray(i);
+            int x = xyziEntry.getInt(0);
+            int y = xyziEntry.getInt(1);
+            int z = xyziEntry.getInt(2);
+            int colorIndex = xyziEntry.getInt(3);
+
+            // Swap axes and apply translation
+            int translatedX = (int) ((x + tileTranslation[0]));
+            int translatedY = (int) ((y + tileTranslation[1]));
+            int translatedZ = (int) ((z + tileTranslation[2]));
+
+            String blockName = translatedX + "," + translatedY + "," + translatedZ;
+            Material material = colorIndexToMaterial.get(colorIndex);
+
+            if (material != null) {
+                blockMap.put(blockName, material);
+            }
+        }
+
+        HashMap<String, Object> indexMap = new HashMap<>();
+        indexMap.put("isPlaced", false); // Initialize to false
+        indexMap.put("blocks", blockMap);
+
+        // Thread-safe put operation
+        indexedBlocks.putIfAbsent(baseName, indexMap);
+    }
+}
+
 
 public void loadJson(String filename, double scaleX, double scaleY, double scaleZ, double offsetX, double offsetY, double offsetZ) throws IOException {
     File file = new File(filename);
@@ -679,7 +742,7 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 2. Set the coordinates for the specific tile
                 double[] latLng = minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
                 tileDownloader.setCoordinates(latLng[1], latLng[0]); // lng, lat
-                tileDownloader.setRadius(25);
+                tileDownloader.setRadius(100);
     
                 // 3. Download only one tile
                 // tileDownloader.downloadTiles(outputDirectory);
