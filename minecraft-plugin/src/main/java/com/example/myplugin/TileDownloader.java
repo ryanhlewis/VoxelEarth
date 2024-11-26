@@ -10,6 +10,7 @@ public class TileDownloader {
     private double latitude;
     private double longitude;
     private double radius;
+    private double[] origin;
 
     public TileDownloader(String apiKey, double latitude, double longitude, double radius) {
         System.out.println("Made TileDownloader");
@@ -28,11 +29,25 @@ public class TileDownloader {
         this.radius = radius;
     }
 
+    public void setOrigin(double[] origin) {
+        this.origin = origin;
+    }
+
     public List<String> downloadTiles(String outputDirectory) throws IOException, InterruptedException {
         List<String> downloadedTiles = new ArrayList<>();
 
         // Construct the command
-        String[] command = {
+        String[] command = origin != null
+        ? new String[] {
+            "python3",
+            "-m", "scripts.download_tiles",
+            "-k", apiKey,
+            "-c", String.valueOf(latitude), String.valueOf(longitude),
+            "-r", String.valueOf(radius),
+            "-o", outputDirectory,
+            "--origin", String.valueOf(origin[0]), String.valueOf(origin[1]), String.valueOf(origin[2])
+        }
+        : new String[] {
             "python3",
             "-m", "scripts.download_tiles",
             "-k", apiKey,
@@ -40,6 +55,7 @@ public class TileDownloader {
             "-r", String.valueOf(radius),
             "-o", outputDirectory
         };
+    
 
         // Print the command for debugging
         System.out.println("[I/O] Running command: " + String.join(" ", command));

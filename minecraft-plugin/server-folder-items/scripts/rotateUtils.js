@@ -91,7 +91,8 @@ async function rotateAndSaveGlb(inputFilePath, outputFilePath, positionOutputPat
             // Save the rotated translation for reference
             tileTranslations.push({
                 name: node.getName() || 'Unnamed Node',
-                translation: rotatedTranslation
+                translation: rotatedTranslation,
+                origin: originTranslation
             });
         }
     });

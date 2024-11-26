@@ -81,6 +81,11 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out",
                         help="output directory to place tiles in",
                         required=True)
+    parser.add_argument("--origin",
+                        help="origin x y z coordinates",
+                        type=float,
+                        nargs=3,
+                        required=False)
 
     args = parser.parse_args()
     if len(args.coords) != 2:
@@ -100,7 +105,7 @@ if __name__ == "__main__":
         args.radius
     ), output_dir=args.out)))
     
-    origin_translation = None
+    origin_translation = args.origin  # This will be None if not provided
     downloaded_tiles = []  # Initialize the list to keep track of downloaded tiles
 
     print("Downloading and rotating tiles...")

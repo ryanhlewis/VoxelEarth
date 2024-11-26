@@ -65,6 +65,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutionException;
 
+// player
+import java.util.UUID;
+
 public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final double LAT_ORIGIN = 50.081033020810736;
@@ -74,6 +77,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private ConcurrentHashMap<String, Map<String, Object>> indexedBlocks = new ConcurrentHashMap<>();
     private static final List<MaterialColor> MATERIAL_COLORS = new ArrayList<>();
     private Map<Integer, Material> colorToMaterialCache = new HashMap<>();
+    private Map<UUID, double[]> playerOrigins = new ConcurrentHashMap<>();
+
+    private Map<UUID, Integer> playerXOffsets = new ConcurrentHashMap<>();
+    private Map<UUID, Integer> playerYOffsets = new ConcurrentHashMap<>();
+    private Map<UUID, Integer> playerZOffsets = new ConcurrentHashMap<>();
+
 
     // origin ecef
     private double[] originEcef; // [x0, y0, z0]
@@ -719,7 +728,7 @@ indexedBlocks = new ConcurrentHashMap<>();
     }
 
 
-    public void loadChunk(int tileX, int tileZ, Consumer<int[]> callback) {
+    public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Consumer<int[]> callback) {
         Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
             try {
                 // 1. Read originEcef from origin_translation.json
@@ -735,6 +744,15 @@ indexedBlocks = new ConcurrentHashMap<>();
                     }
                 }
     
+                // Use the player's origin if available
+                double[] playerOrigin = playerOrigins.get(playerUUID);
+                if (playerOrigin != null) {
+                    tileDownloader.setOrigin(playerOrigin);
+                } else {
+                    tileDownloader.setOrigin(null);
+                }
+
+
                 int[] blockLocation = new int[]{210, 70, 0}; // Default location
     
                 String outputDirectory = SESSION_DIR; // Use the session directory for all tiles
@@ -742,7 +760,7 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 2. Set the coordinates for the specific tile
                 double[] latLng = minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
                 tileDownloader.setCoordinates(latLng[1], latLng[0]); // lng, lat
-                tileDownloader.setRadius(50);
+                tileDownloader.setRadius(100);
     
                 // 3. Download only one tile
                 // tileDownloader.downloadTiles(outputDirectory);
@@ -760,7 +778,34 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 5. Load the JSON for the specific tile
                 Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
                 // loadIndexedJson(new File(outputDirectory));
-                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, tileX, tileZ);
+
+
+
+                int adjustedTileX = tileX;
+                int adjustedTileZ = tileZ;                
+
+                // if isvisit
+                if (isVisit) {
+
+                    // add tilex and tilez to player offsets
+                    playerXOffsets.put(playerUUID, tileX);
+                    playerZOffsets.put(playerUUID, tileZ);
+
+                } else {
+                    Integer storedXOffset = playerXOffsets.get(playerUUID);
+                    if (storedXOffset != null) {
+                        adjustedTileX = storedXOffset;
+                    }
+
+                    Integer storedZOffset = playerZOffsets.get(playerUUID);
+                    if (storedZOffset != null) {
+                        adjustedTileZ = storedZOffset;
+                    }
+                }
+
+
+
+                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
     
@@ -783,6 +828,10 @@ indexedBlocks = new ConcurrentHashMap<>();
                 // 8. Schedule Bukkit task for block placement
                 String finalInitialTileKey = initialTileKey;
                 // Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+                
+        
+                
+                
                     System.out.println("Starting chunk regeneration...");
                     System.out.println("Indexblocks size: " + indexedBlocks.size());
     
@@ -807,6 +856,46 @@ indexedBlocks = new ConcurrentHashMap<>();
                         yOffset.set(desiredY - minYInTile);
                         System.out.println("Computed yOffset: " + yOffset.get());
     
+
+
+                        if (isVisit) {
+                            // Assuming the position file is named after the tile
+                            String positionFileName = finalInitialTileKey.replaceFirst("\\.glb.*$", "") + "_position.json";
+                            File positionFile = new File(outputDirectory, positionFileName);
+                            if (positionFile.exists()) {
+                                try (FileReader posReader = new FileReader(positionFile)) {
+                                    JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
+                                    if (positionArray.length() > 0) {
+                                        JSONObject positionData = positionArray.getJSONObject(0);
+                                        JSONArray originArray = positionData.getJSONArray("origin");
+                                        double[] origin = new double[3];
+                                        origin[0] = originArray.getDouble(0);
+                                        origin[1] = originArray.getDouble(1);
+                                        origin[2] = originArray.getDouble(2);
+                                        // Save the origin for this player
+                                        playerOrigins.put(playerUUID, origin);
+                                    }
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+        
+                            playerYOffsets.put(playerUUID, yOffset.get());
+        
+                        } else {
+                            Integer storedYOffset = playerYOffsets.get(playerUUID);
+                            if (storedYOffset != null) {
+                                yOffset.set(storedYOffset);
+                            } else {
+                                // Handle the case where yOffset is not available
+                                // yOffset.set(0); // Or some default value
+                            }
+        
+                        }
+            
+
+
+
                         // Place the blocks only if they haven't been placed yet
                         if (!(boolean) indexMap1.get("isPlaced")) {
                             placeBlocks(world, blockMap1, yOffset.get());
@@ -823,6 +912,23 @@ indexedBlocks = new ConcurrentHashMap<>();
                         }
                     }
     
+
+                    if (isVisit) {
+    
+    //                    playerYOffsets.put(playerUUID, yOffset.get());
+    
+                    } else {
+                        Integer storedYOffset = playerYOffsets.get(playerUUID);
+                        if (storedYOffset != null) {
+                            yOffset.set(storedYOffset);
+                        } else {
+                            // Handle the case where yOffset is not available
+                            // yOffset.set(0); // Or some default value
+                        }
+    
+                    }
+        
+
                     // Process other tiles
                     indexedBlocks.forEach((tileKey, indexMap) -> {
                         if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !(boolean) indexMap.get("isPlaced")) {
@@ -944,7 +1050,7 @@ private void updateLighting(World world, Set<Chunk> modifiedChunks) {
 
     // Convert Minecraft chunks to lat/lng
     public double[] minecraftToLatLng(int chunkX, int chunkZ) {
-        double metersPerChunk = (metersPerBlock / 4) * CHUNK_SIZE;
+        double metersPerChunk = (metersPerBlock / 5) * CHUNK_SIZE;
         double metersX = chunkX * metersPerChunk;
         double metersZ = chunkZ * metersPerChunk;
 
@@ -957,7 +1063,7 @@ private void updateLighting(World world, Set<Chunk> modifiedChunks) {
     // Convert lat/lng to Minecraft chunk coordinates
     public int[] latLngToMinecraft(double lat, double lng) {
         double[] meters = latLngToMeters(lat, lng);
-        double metersPerChunk = (metersPerBlock / 4) * CHUNK_SIZE;
+        double metersPerChunk = (metersPerBlock / 5) * CHUNK_SIZE;
 
         int chunkX = (int) Math.floor(meters[0] / metersPerChunk);
         int chunkZ = (int) Math.floor(meters[1] / metersPerChunk);

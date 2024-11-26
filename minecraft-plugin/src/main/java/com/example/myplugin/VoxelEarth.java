@@ -243,7 +243,7 @@ private void teleportAndLoadChunk(Player player, World world, int x, int z, int 
         System.out.println("Loading chunk: " + chunkX + ", " + chunkZ);
         // world.loadChunk(chunkX, chunkZ, true);
         // voxelChunkGenerator.loadChunk(chunkX, chunkZ);
-        voxelChunkGenerator.loadChunk(chunkX, chunkZ, (blockLocation) -> {
+        voxelChunkGenerator.loadChunk(player.getUniqueId(), chunkX, chunkZ, true, (blockLocation) -> {
             Bukkit.getScheduler().runTask(this, () -> {
                 System.out.println("Block location: " + blockLocation[0] + ", " + blockLocation[1]);
                 Location location = new Location(world, blockLocation[0], blockLocation[1], blockLocation[2]);
