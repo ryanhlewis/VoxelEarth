@@ -170,9 +170,6 @@ public class VoxelEarth extends JavaPlugin {
                         voxelChunkGenerator = new VoxelChunkGenerator();
                     }
 
-                    // Make sure materials are loaded
-                    voxelChunkGenerator.loadMaterialColors();
-
                     // Convert lat/lng to Minecraft coordinates
                     int[] chunkCoords = voxelChunkGenerator.latLngToMinecraft(latLng[0], latLng[1]);
                     

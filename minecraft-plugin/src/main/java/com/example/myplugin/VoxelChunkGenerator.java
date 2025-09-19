@@ -79,6 +79,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25); 
         initializeSessionDirectory();
         scheduleSessionCleanup();
+        loadMaterialColors();
     }
 
     private void initializeSessionDirectory() {
@@ -660,7 +661,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                tileDownloader.setRadius(25);
+                tileDownloader.setRadius(500);
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
                 List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
@@ -851,8 +852,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             );
 
             // System.out.println("[DEBUG] Set block at " + newX + "," + newY + "," + newZ + " in chunk (" + blockChunkX + "," + blockChunkZ + ") mat: " + material);
+            
+            // Get the chunk that corresponds to the block's real chunk coordinates
+            Block pos = world.getBlockAt(newX, newY, newZ);
+            Chunk realChunk = pos.getChunk();
 
-            modifiedChunks.add(chunk);
+            modifiedChunks.add(realChunk);
         }
 
         updateLighting(world, modifiedChunks);

@@ -59,8 +59,8 @@ public class PlayerMovementListener implements Listener {
             System.out.println("Player loaded new latlng: " + latLng[0] + ", " + latLng[1]);
 
             // Load the chunk asynchronously
-            generator.loadChunk(player.getUniqueId(), tileX, tileZ, false, (blockLocation) -> {
-            });
+            // generator.loadChunk(player.getUniqueId(), tileX, tileZ, false, (blockLocation) -> {
+            // });
 
         }
 
