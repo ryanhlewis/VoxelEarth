@@ -26,6 +26,25 @@ commands:
     usage: /visit <location>
     permission: voxelearth.visit
     permission-message: You don't have permission to use the visit command.
+  visitradius:
+    description: Set how many tiles /visit loads around the target
+    usage: /visitradius <tiles>
+    permission: voxelearth.admin
+    permission-message: You don't have permission to set the visit radius.
+  moveradius:
+    description: Set how many tiles movement-triggered loads will fetch
+    usage: /moveradius <tiles>
+    permission: voxelearth.admin
+    permission-message: You don't have permission to set the move radius.
+  movethreshold:
+    description: Set the movement distance threshold (in blocks) for triggering loads
+    usage: /movethreshold <blocks>
+    permission: voxelearth.admin
+    permission-message: You don't have permission to set the move threshold.
+  moveload:
+    description: Toggle movement-based loading for yourself
+    usage: /moveload <on|off|toggle|status>
+    permission-message: You don't have permission to toggle moveload.
 permissions:
   voxelearth.createcustomworld:
     description: Allows creating custom worlds with VoxelEarth.
@@ -39,3 +58,6 @@ permissions:
   voxelearth.visit:
     description: Allows teleporting to a location using geocoding.
     default: true
+  voxelearth.admin:
+    description: Allows setting visit radius and admin actions
+    default: op

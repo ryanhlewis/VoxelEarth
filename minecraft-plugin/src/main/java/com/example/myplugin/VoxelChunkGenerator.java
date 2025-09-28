@@ -53,6 +53,24 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private Map<UUID, Integer> playerYOffsets = new ConcurrentHashMap<>();
     private Map<UUID, Integer> playerZOffsets = new ConcurrentHashMap<>();
 
+    // VISIT tile radius (for /visit)
+    private volatile int visitTileRadius = 50;   // default; was 50 in earlier example
+    public void setVisitTileRadius(int tiles) { this.visitTileRadius = Math.max(1, tiles); }
+    public int getVisitTileRadius() { return visitTileRadius; }
+
+    // MOVEMENT tile radius (for PlayerMovementListener-triggered loads)
+    private volatile int moveTileRadius = 25;    // default; previously "single tile loading" ~25
+    public void setMoveTileRadius(int tiles) { this.moveTileRadius = Math.max(1, tiles); }
+    public int getMoveTileRadius() { return moveTileRadius; }
+
+    // NEW: explicit "begin a fresh visit" hook
+    public void beginVisit(UUID playerId) {
+        playerOrigins.remove(playerId);
+        playerXOffsets.remove(playerId);
+        playerYOffsets.remove(playerId);
+        playerZOffsets.remove(playerId);
+    }
+
     // origin ecef
     private double[] originEcef; // [x0, y0, z0]
 
@@ -632,27 +650,27 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Consumer<int[]> callback) {
         Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
             try {
+                // Global origin (unchanged)
                 File originTranslationFile = new File("origin_translation.json");
                 if (originTranslationFile.exists()) {
                     try (FileReader reader = new FileReader(originTranslationFile)) {
                         JSONArray originArray = new JSONArray(new JSONTokener(reader));
-                        originEcef = new double[3];
-                        originEcef[0] = originArray.getDouble(0);
-                        originEcef[1] = -originArray.getDouble(2);
-                        originEcef[2] = originArray.getDouble(1);
-                        System.out.println("[DEBUG] Adjusted origin ECEF: " + Arrays.toString(originEcef));
+                        originEcef = new double[]{
+                            originArray.getDouble(0),
+                            -originArray.getDouble(2),
+                            originArray.getDouble(1)
+                        };
                     }
-                } else {
-                    System.out.println("[DEBUG] origin_translation.json not found, originEcef may not be set.");
                 }
 
-                double[] playerOrigin = playerOrigins.get(playerUUID);
-                if (playerOrigin != null) {
-                    tileDownloader.setOrigin(playerOrigin);
-                    System.out.println("[DEBUG] Using player's stored origin: " + Arrays.toString(playerOrigin));
+                // CHANGED: handle origin based on visit/non-visit
+                if (isVisit) {
+                    // Fresh visit → clear any stale state and force null origin
+                    beginVisit(playerUUID); // NEW
+                    tileDownloader.setOrigin(null); // NEW: ensure no stale origin affects voxelization
                 } else {
-                    tileDownloader.setOrigin(null);
-                    System.out.println("[DEBUG] No player-specific origin, using global origin.");
+                    double[] playerOrigin = playerOrigins.get(playerUUID);
+                    tileDownloader.setOrigin(playerOrigin); // may be null; that's fine
                 }
 
                 int[] blockLocation = new int[]{210, 70, 0};
@@ -663,7 +681,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                tileDownloader.setRadius(50);
+                
+                // 🔴 THIS is the key line:
+                tileDownloader.setRadius(isVisit ? getVisitTileRadius() : getMoveTileRadius());
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
                 List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
@@ -737,36 +757,37 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     yOffset.set(desiredY - minYInTile);
                     System.out.println("[DEBUG] Computed yOffset: " + yOffset.get());
 
-                    if (isVisit) {
-                        String positionFileName = initialTileKey.replaceFirst("\\.glb.*$", "") + "_position.json";
-                        File positionFile = new File(outputDirectory, positionFileName);
-                        if (positionFile.exists()) {
-                            try (FileReader posReader = new FileReader(positionFile)) {
-                                JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
-                                if (positionArray.length() > 0) {
-                                    JSONObject positionData = positionArray.getJSONObject(0);
-                                    JSONArray originArray = positionData.getJSONArray("origin");
-                                    double[] origin = new double[3];
-                                    origin[0] = originArray.getDouble(0);
-                                    origin[1] = originArray.getDouble(1);
-                                    origin[2] = originArray.getDouble(2);
-                                    playerOrigins.put(playerUUID, origin);
-                                    System.out.println("[DEBUG] Storing player origin: " + Arrays.toString(origin));
-                                }
-                            } catch (Exception e) {
-                                System.out.println("[DEBUG] Error reading position file for origin:");
-                                e.printStackTrace();
+                if (isVisit) {
+                    // After voxelizer writes *_position.json, now store the *new* origin for future loads
+                    String positionFileName = initialTileKey.replaceFirst("\\.glb.*$", "") + "_position.json";
+                    File positionFile = new File(outputDirectory, positionFileName);
+                    if (positionFile.exists()) {
+                        try (FileReader posReader = new FileReader(positionFile)) {
+                            JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
+                            if (positionArray.length() > 0) {
+                                JSONObject positionData = positionArray.getJSONObject(0);
+                                JSONArray originArray = positionData.getJSONArray("origin");
+                                double[] origin = new double[]{
+                                    originArray.getDouble(0),
+                                    originArray.getDouble(1),
+                                    originArray.getDouble(2)
+                                };
+                                playerOrigins.put(playerUUID, origin); // NEW: store for subsequent loads
+                                System.out.println("[DEBUG] Storing player origin: " + Arrays.toString(origin));
                             }
-                        }
-
-                        playerYOffsets.put(playerUUID, yOffset.get());
-                    } else {
-                        Integer storedYOffset = playerYOffsets.get(playerUUID);
-                        if (storedYOffset != null) {
-                            yOffset.set(storedYOffset);
-                            System.out.println("[DEBUG] Using stored yOffset: " + yOffset.get());
+                        } catch (Exception e) {
+                            System.out.println("[DEBUG] Error reading position file for origin:");
+                            e.printStackTrace();
                         }
                     }
+                    playerYOffsets.put(playerUUID, yOffset.get());
+                } else {
+                    Integer storedYOffset = playerYOffsets.get(playerUUID);
+                    if (storedYOffset != null) {
+                        yOffset.set(storedYOffset);
+                        System.out.println("[DEBUG] Using stored yOffset: " + yOffset.get());
+                    }
+                }
 
                     if (!(boolean) indexMap1.get("isPlaced")) {
                         System.out.println("[DEBUG] Placing blocks for initial tile...");

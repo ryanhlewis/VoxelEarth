@@ -5,75 +5,119 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.entity.Player;
 import org.bukkit.Location;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PlayerMovementListener implements Listener {
 
-    private VoxelEarth plugin;
-    private Map<Player, Location> lastLoadedLocations = new HashMap<>();
-    private static final double LOAD_THRESHOLD = 50.0;
+    private final VoxelEarth plugin;
+
+    // Per-player last location we used to trigger a load
+    private final Map<UUID, Location> lastLoadedLocations = new ConcurrentHashMap<>();
+
+    // NEW: configurable threshold in BLOCKS (distance between lastLoadedLocation and current)
+    private volatile double moveThresholdBlocks = 50.0;
+
+    // NEW: per-player opt-in/out for movement load (default ON)
+    private final Set<UUID> moveLoadEnabled = ConcurrentHashMap.newKeySet();
+
+    // NEW: per-player cooldown + in-flight guard
+    private final Map<UUID, Long> lastLoadMs = new ConcurrentHashMap<>();
+    private final Map<UUID, AtomicBoolean> inFlight = new ConcurrentHashMap<>();
+    private static final long COOLDOWN_MS = 3000L; // 3s between loads per player
+
+    // Keep track of explicit off to preserve intent across joins (optional)
+    private final Set<UUID> explicitlyDisabled = ConcurrentHashMap.newKeySet();
 
     public PlayerMovementListener(VoxelEarth plugin) {
         this.plugin = plugin;
         plugin.getLogger().info("PlayerMovementListener has been created");
     }
 
+    // --- Admin/player controls ------------------------------------------------
+
+    public void setMoveThresholdBlocks(double blocks) {
+        moveThresholdBlocks = Math.max(4.0, blocks); // prevent silly small values
+    }
+
+    public double getMoveThresholdBlocks() {
+        return moveThresholdBlocks;
+    }
+
+    public boolean isMoveLoadEnabled(UUID playerId) {
+        // default ON
+        return moveLoadEnabled.contains(playerId) || !moveLoadEnabled.contains(playerId) && !explicitlyDisabled.contains(playerId);
+    }
+
+    public void setMoveLoad(UUID playerId, boolean enabled) {
+        if (enabled) {
+            moveLoadEnabled.add(playerId);
+            explicitlyDisabled.remove(playerId);
+        } else {
+            moveLoadEnabled.remove(playerId);
+            explicitlyDisabled.add(playerId);
+        }
+    }
+
+    public void toggleMoveLoad(UUID playerId) {
+        setMoveLoad(playerId, !isMoveLoadEnabled(playerId));
+    }
+
+    // --- Movement handling ----------------------------------------------------
+
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
+        UUID pid = player.getUniqueId();
+
         Location from = event.getFrom();
         Location to = event.getTo();
+        if (to == null) return;
 
-        // Check if the player has moved a meaningful amount (not just head movement)
+        // Ignore tiny head rotations
         if (from.getBlockX() == to.getBlockX() &&
             from.getBlockY() == to.getBlockY() &&
             from.getBlockZ() == to.getBlockZ()) {
-            return; // Ignore small movements
+            return;
         }
 
+        // Respect per-player toggles
+        if (!isMoveLoadEnabled(pid)) return;
+
+        // Cooldown
+        long now = System.currentTimeMillis();
+        long last = lastLoadMs.getOrDefault(pid, 0L);
+        if (now - last < COOLDOWN_MS) return;
+
+        // Distance threshold
+        Location lastLocation = lastLoadedLocations.get(pid);
+        if (lastLocation != null && lastLocation.distanceSquared(to) < moveThresholdBlocks * moveThresholdBlocks) {
+            return;
+        }
+
+        // Mark as in-flight (once)
+        AtomicBoolean flag = inFlight.computeIfAbsent(pid, k -> new AtomicBoolean(false));
+        if (!flag.compareAndSet(false, true)) {
+            // a load is already running for this player
+            return;
+        }
+
+        // Update the markers optimistically
+        lastLoadedLocations.put(pid, to.clone());
+        lastLoadMs.put(pid, now);
+
+        // Convert player's position to chunk-ish "tile" coordinates (16 blocks = 1 chunk)
+        int tileX = to.getBlockX() >> 4;
+        int tileZ = to.getBlockZ() >> 4;
+
+        // Kick the async load
         VoxelChunkGenerator generator = plugin.getVoxelChunkGenerator();
 
-        // Get the player's current position (XYZ)
-        double x = to.getX();
-        double z = to.getZ();
-
-        // Convert player's position to tile coordinates
-        int tileX = (int) Math.floor(x / 16);
-        int tileZ = (int) Math.floor(z / 16);
-        double[] latLng = generator.minecraftToLatLng(tileX, tileZ); // Assume 1 meter per block
-
-        // System.out.println("Player moved to: " + x + ", " + z);
-        // double[] latLng = generator.blockToLatLng(x, z);
-        // System.out.println("Player's latitude and longitude: " + latLng[0] + ", " + latLng[1]);
-    
-        // Get the last location where tiles were loaded for this player
-        Location lastLocation = lastLoadedLocations.get(player);
-
-        // If no tiles have been loaded yet, or if the player has moved beyond the threshold
-        if (lastLocation == null || lastLocation.distance(to) >= LOAD_THRESHOLD) {
-            // Update the last loaded location
-            lastLoadedLocations.put(player, to.clone());
-
-            // Loading chunks at
-            System.out.println("Player loaded new latlng: " + latLng[0] + ", " + latLng[1]);
-
-            // Load the chunk asynchronously
-            // generator.loadChunk(player.getUniqueId(), tileX, tileZ, false, (blockLocation) -> {
-            // });
-
-        }
-
-
-        // Check if the player is near the edge of loaded tiles
-        // if (generator.isNearEdge(x, z)) {
-        //     // Convert player's position to latitude/longitude
-        //     double[] latLng = generator.minecraftToLatLng(x, 0, z);
-        //     double lat = latLng[0];
-        //     double lng = latLng[1];
-
-        //     // Load new tiles dynamically based on the new lat/lng
-        //     generator.loadTilesAt(lat, lng);
-        // }
+        // false => not a /visit (so we reuse stored origin once established)
+        generator.loadChunk(pid, tileX, tileZ, false, (blockLocation) -> {
+            // When the async work is done, allow another request
+            flag.set(false);
+        });
     }
 }

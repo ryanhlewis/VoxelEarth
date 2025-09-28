@@ -28,15 +28,16 @@ public class VoxelEarth extends JavaPlugin {
 
     // Hold a single instance of VoxelChunkGenerator
     private VoxelChunkGenerator voxelChunkGenerator;
+    private PlayerMovementListener movementListener; // NEW
 
     @Override
     public void onEnable() {
         getLogger().info("VoxelEarth has been enabled");
         
         // Register the player movement listener
-        getServer().getPluginManager().registerEvents(new PlayerMovementListener(this), this);
+        movementListener = new PlayerMovementListener(this); // NEW
+        getServer().getPluginManager().registerEvents(movementListener, this);
         getLogger().info("Player movement listener registered successfully");
-
 
         // Re-attach the generator to the existing world
         reattachGeneratorToWorld("world");
@@ -64,6 +65,10 @@ public class VoxelEarth extends JavaPlugin {
             voxelChunkGenerator = new VoxelChunkGenerator();
         }
         return voxelChunkGenerator;
+    }
+
+    public PlayerMovementListener getMovementListener() { // NEW
+        return movementListener;
     }
 
     @Override
@@ -144,13 +149,103 @@ public class VoxelEarth extends JavaPlugin {
                 sender.sendMessage("Usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>");
                 return false;
             }
-        } else     if (command.getName().equalsIgnoreCase("visit")) {
+        } else if (command.getName().equalsIgnoreCase("visitradius")) {
+            // /visitradius <tiles>
+            if (args.length != 1) {
+                sender.sendMessage("Usage: /visitradius <tiles>");
+                return false;
+            }
+            try {
+                int tiles = Integer.parseInt(args[0]);
+                if (tiles < 1) {
+                    sender.sendMessage("Minimum radius is 1 tile.");
+                    return true;
+                }
+                getVoxelChunkGenerator().setVisitTileRadius(tiles);
+                sender.sendMessage("Visit tile radius set to " + tiles + " tile(s).");
+                return true;
+            } catch (NumberFormatException e) {
+                sender.sendMessage("Tiles must be an integer.");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("moveradius")) {
+            if (args.length != 1) {
+                sender.sendMessage("Usage: /moveradius <tiles>");
+                return false;
+            }
+            try {
+                int tiles = Integer.parseInt(args[0]);
+                if (tiles < 1) {
+                    sender.sendMessage("Minimum moveradius is 1 tile.");
+                    return true;
+                }
+                getVoxelChunkGenerator().setMoveTileRadius(tiles);
+                sender.sendMessage("Movement tile load radius set to " + tiles + " tile(s).");
+                return true;
+            } catch (NumberFormatException e) {
+                sender.sendMessage("Tiles must be an integer.");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("movethreshold")) {
+            if (args.length != 1) {
+                sender.sendMessage("Usage: /movethreshold <blocks>");
+                return false;
+            }
+            try {
+                double blocks = Double.parseDouble(args[0]);
+                getMovementListener().setMoveThresholdBlocks(blocks);
+                sender.sendMessage("Movement distance threshold set to " + (int)blocks + " block(s).");
+                return true;
+            } catch (NumberFormatException e) {
+                sender.sendMessage("Threshold must be a number (in blocks).");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("moveload")) {
+            if (!(sender instanceof org.bukkit.entity.Player)) {
+                sender.sendMessage("Only players can toggle their moveload setting.");
+                return true;
+            }
+            Player player = (Player) sender;
+            if (args.length == 0 || args[0].equalsIgnoreCase("toggle")) {
+                getMovementListener().toggleMoveLoad(player.getUniqueId());
+                sender.sendMessage("MoveLoad is now " + (getMovementListener().isMoveLoadEnabled(player.getUniqueId()) ? "ON" : "OFF") + ".");
+                return true;
+            }
+            if (args[0].equalsIgnoreCase("on")) {
+                getMovementListener().setMoveLoad(player.getUniqueId(), true);
+                sender.sendMessage("MoveLoad is now ON.");
+                return true;
+            }
+            if (args[0].equalsIgnoreCase("off")) {
+                getMovementListener().setMoveLoad(player.getUniqueId(), false);
+                sender.sendMessage("MoveLoad is now OFF.");
+                return true;
+            }
+            if (args[0].equalsIgnoreCase("status")) {
+                boolean enabled = getMovementListener().isMoveLoadEnabled(player.getUniqueId());
+                int moveRadius = getVoxelChunkGenerator().getMoveTileRadius();
+                double threshold = getMovementListener().getMoveThresholdBlocks();
+                sender.sendMessage("MoveLoad: " + (enabled ? "ON" : "OFF") + 
+                                 " | Tile Radius: " + moveRadius + 
+                                 " | Distance Threshold: " + (int)threshold + " blocks");
+                return true;
+            }
+            sender.sendMessage("Usage: /moveload <on|off|toggle|status>");
+            return false;
+        } else if (command.getName().equalsIgnoreCase("visit")) {
             if (args.length == 0) {
                 sender.sendMessage("Usage: /visit <location>");
                 return false;
             }
 
             String location = String.join(" ", args);
+            
+            // Add instanceof check to prevent console errors
+            if (!(sender instanceof Player)) {
+                sender.sendMessage("This command can only be used by players.");
+                return false;
+            }
+            
             Player player = (Player) sender;
 
             // Geocode the location asynchronously
