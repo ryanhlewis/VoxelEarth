@@ -18,7 +18,7 @@ Class for triangle meshes.
 #include "Color.h"
 #include "strutil.h"
 #include <vector>
-
+#include <iostream>
 
 namespace trimesh {
 
@@ -206,11 +206,14 @@ public:
         std::cout << "Number of faces: " << faces.size() << std::endl;
         std::cout << "Number of textures: " << textures.size() << std::endl;
 
-        for (const auto& [key, texture] : textures) {
-            std::cout << "Texture URI: " << texture.uri << std::endl;
-            std::cout << "Texture size: " << texture.imageData.size() << " bytes" << std::endl;
-            std::cout << "Texture dimensions: " << texture.width << "x" << texture.height << std::endl;
-            std::cout << "Texture components: " << texture.components << std::endl;
+        for (const auto& kv : textures) {
+            const int key = kv.first;
+            const Texture& tex = kv.second;  // avoid name 'texture' (clashes with CUDA)
+            std::cout << "Texture key: " << key << std::endl;
+            std::cout << "Texture URI: " << tex.uri << std::endl;
+            std::cout << "Texture size: " << tex.imageData.size() << " bytes" << std::endl;
+            std::cout << "Texture dimensions: " << tex.width << "x" << tex.height << std::endl;
+            std::cout << "Texture components: " << tex.components << std::endl;
         }
     }
 

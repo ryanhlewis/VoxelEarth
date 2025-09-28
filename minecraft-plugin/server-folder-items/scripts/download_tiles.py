@@ -47,6 +47,9 @@ def rotate_glb(input_file, output_file, position_output_file, origin_translation
     if origin_translation:
         command.append(json.dumps(origin_translation))
 
+    # Debug print the command being executed
+    print("Executing command:", " ".join(command))
+
     result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -140,9 +143,10 @@ if __name__ == "__main__":
             origin_translation = origin_translation_output
             print(f"Captured origin_translation: {origin_translation}")
 
-        if input_path.exists():
-            input_path.unlink()
-            print(f"Deleted {input_path.name}")
+        # DEBUG: Original tiles can be deleted after rotation
+        # if input_path.exists():
+        #     input_path.unlink()
+        #     print(f"Deleted {input_path.name}")
 
         # Add the rotated tile filename to the list
         downloaded_tiles.append(rotated_file_path.name)

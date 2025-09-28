@@ -216,6 +216,9 @@ private double[] geocodeLocation(String location) throws IOException {
 
     JSONObject jsonResponse = new JSONObject(response.toString());
     if (!jsonResponse.getString("status").equals("OK")) {
+        // Log the error message for debugging
+        getLogger().severe("Geocoding API error: " + jsonResponse.getString("status"));
+        getLogger().severe("Geocoding API response: " + jsonResponse.toString());
         return null;
     }
 

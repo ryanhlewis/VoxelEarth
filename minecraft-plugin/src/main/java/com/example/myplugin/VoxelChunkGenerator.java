@@ -57,6 +57,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private double[] originEcef; // [x0, y0, z0]
 
     // Default values for scale and offsets
+    // private double scaleFactor = 2.97;
     private double scaleFactor = 2.1;
     private double metersPerBlock = scaleFactor;
 
@@ -322,6 +323,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 "-f", file.getAbsolutePath(),
                 "-o", "json",
                 "-s", "128",
+                "-3dtiles",
                 "-output", directory
         );
 
@@ -386,7 +388,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         List<Future<?>> futures = new ArrayList<>();
 
         for (String tileFileName : tileFiles) {
-            String baseName = tileFileName;
+            String baseName = tileFileName.replaceFirst("\\.glb.*$", "");
             File jsonFile = new File(directory, baseName + "_128.json");
 
             if (indexedBlocks.containsKey(baseName)) {
@@ -477,9 +479,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 int z = xyziEntry.getInt(2);
                 int colorIndex = xyziEntry.getInt(3);
 
-                int translatedX = (int) ((x + tileTranslation[0]));
-                int translatedY = (int) ((y + tileTranslation[1]));
-                int translatedZ = (int) ((z + tileTranslation[2]));
+                int translatedX = (int)Math.round(x + tileTranslation[0]);
+                int translatedY = (int)Math.round(y + tileTranslation[1]);
+                int translatedZ = (int)Math.round(z + tileTranslation[2]);
 
                 String blockName = translatedX + "," + translatedY + "," + translatedZ;
                 Material material = colorIndexToMaterial.get(colorIndex);
@@ -661,7 +663,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                tileDownloader.setRadius(500);
+                tileDownloader.setRadius(50);
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
                 List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);

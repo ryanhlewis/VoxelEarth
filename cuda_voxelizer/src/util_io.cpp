@@ -1,59 +1,64 @@
+#include "debug.h"
 #include "util_io.h"
 
-
-// #define TINYGLTF_IMPLEMENTATION
-// #define STB_IMAGE_IMPLEMENTATION
-// #define STB_IMAGE_WRITE_IMPLEMENTATION
+// For concurrency safety
+#include <mutex>
+#include <map>
+#include <json.hpp>
 #include <tiny_gltf.h>
 #include <draco/compression/encode.h>
 #include <draco/mesh/mesh.h>
+#include <fstream>
+#include <cassert>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <iostream>
 
-#include <map>
-#include <json.hpp> // For JSON serialization
+static std::mutex io_mutex;
 
-using namespace std;
-
-// helper function to get file length (in number of ASCII characters)
 size_t get_file_length(const std::string base_filename){
-	// open file at the end
-	std::ifstream input(base_filename.c_str(), ios_base::ate | ios_base::binary);
-	assert(input);
-	size_t length = input.tellg();
-	input.close();
-	return length; // get file length
+    std::lock_guard<std::mutex> lock(io_mutex);
+    std::ifstream input(base_filename.c_str(), std::ios::ate | std::ios::binary);
+    assert(input);
+    size_t length = (size_t)input.tellg();
+    input.close();
+    return length;
 }
 
-// read raw bytes from file
 void read_binary(void* data, const size_t length, const std::string base_filename){
-	// open file
-	std::ifstream input(base_filename.c_str(), ios_base::in | ios_base::binary);
-	assert(input);
+    std::lock_guard<std::mutex> lock(io_mutex);
+    std::ifstream input(base_filename.c_str(), std::ios::in | std::ios::binary);
+    assert(input);
 #ifndef SILENT
-	fprintf(stdout, "[I/O] Reading %llu kb of binary data from file %s \n", size_t(length / 1024.0f), base_filename.c_str()); fflush(stdout);
+    fprintf(stdout, "[I/O] Reading %llu kb of binary data from file %s \n",
+            (unsigned long long)(length / 1024ULL),
+            base_filename.c_str());
+    fflush(stdout);
 #endif
-	input.seekg(0, input.beg);
-	input.read((char*) data, 8);
-	input.close();
-	return;
+    input.seekg(0, input.beg);
+    input.read((char*) data, length);
+    input.close();
+    return;
 }
 
 // Helper function to write single vertex normal to OBJ file
-static void write_vertex_normal(ofstream& output, const int3& v) {
-	output << "vn " << v.x << " " << v.y << " " << v.z << endl;
+static void write_vertex_normal(std::ofstream& output, const int3& v) {
+    output << "vn " << v.x << " " << v.y << " " << v.z << std::endl;
 }
 
 // Helper function to write single vertex to OBJ file
-static void write_vertex(ofstream& output, const int3& v) {
-	output << "v " << v.x << " " << v.y << " " << v.z << endl;
+static void write_vertex(std::ofstream& output, const int3& v) {
+    output << "v " << v.x << " " << v.y << " " << v.z << std::endl;
 }
 
-// Helper function to write single vertex
-static void write_face(ofstream& output, const int3& v) {
-	output << "f " << v.x << " " << v.y << " " << v.z << endl;
+// Helper function to write single face
+static void write_face(std::ofstream& output, const int3& v) {
+    output << "f " << v.x << " " << v.y << " " << v.z << std::endl;
 }
 
-// Helper function to write full cube (using relative vertex positions in the OBJ file - support for this should be widespread by now)
-void write_cube(const int x, const int y, const int z, ofstream& output) {
+// Helper function to write full cube (using relative vertex positions)
+void write_cube(const int x, const int y, const int z, std::ofstream& output) {
 	//	   2-------1
 	//	  /|      /|
 	//	 / |     / |
@@ -63,12 +68,12 @@ void write_cube(const int x, const int y, const int z, ofstream& output) {
 	//	5-------6
     // Create vertices
 	int3 v1 = make_int3(x+1, y+1, z + 1);
-	int3 v2 = make_int3(x, y+1, z + 1);
-	int3 v3 = make_int3(x+1, y, z + 1);
-	int3 v4 = make_int3(x, y, z + 1);
-	int3 v5 = make_int3(x, y, z);
-	int3 v6 = make_int3(x+1, y, z);
-	int3 v7 = make_int3(x, y+1, z);
+	int3 v2 = make_int3(x,   y+1, z + 1);
+	int3 v3 = make_int3(x+1, y,   z + 1);
+	int3 v4 = make_int3(x,   y,   z + 1);
+	int3 v5 = make_int3(x,   y,   z);
+	int3 v6 = make_int3(x+1, y,   z);
+	int3 v7 = make_int3(x,   y+1, z);
 	int3 v8 = make_int3(x+1, y+1, z);
 	// write them in reverse order, so relative position is -i for v_i
 	write_vertex(output, v8);
@@ -100,225 +105,218 @@ void write_cube(const int x, const int y, const int z, ofstream& output) {
 	write_face(output, make_int3(-5, -8, -7));
 }
 
+// Write the voxel array as an OBJ full of cubes
 void write_obj_cubes(const unsigned int* vtable, const voxinfo v_info, const std::string base_filename) {
-	string filename_output = base_filename + string("_") + to_string(v_info.gridsize.x) + string("_voxels.obj");
-	ofstream output(filename_output.c_str(), ios::out);
+	std::lock_guard<std::mutex> lock(io_mutex);
+
+	std::string filename_output = base_filename
+		+ std::string("_") + std::to_string(v_info.gridsize.x)
+		+ std::string("_voxels.obj");
+	std::ofstream output(filename_output.c_str(), std::ios::out);
 
 #ifndef SILENT
-	fprintf(stdout, "[I/O] Writing data in obj voxels format to file %s \n", filename_output.c_str());
-	// Write stats
-	size_t voxels_seen = 0;
-	const size_t write_stats_25 = (size_t(v_info.gridsize.x) * size_t(v_info.gridsize.y) * size_t(v_info.gridsize.z)) / 4.0f;
-	fprintf(stdout, "[I/O] Writing to file: 0%%...");
+	fprintf(stdout, "[I/O] Writing data in obj voxels format to file %s \n",
+	        filename_output.c_str());
 #endif
-	
-
-	// Write vertex normals once
-	//write_vertex_normal(output, glm::ivec3(0, 0, -1)); // forward = 1
-	//write_vertex_normal(output, glm::ivec3(0, 0, 1)); // backward = 2
-	//write_vertex_normal(output, glm::ivec3(-1, 0, 0)); // left = 3
-	//write_vertex_normal(output, glm::ivec3(1, 0, 0)); // right = 4
-	//write_vertex_normal(output, glm::ivec3(0, -1, 0)); // bottom = 5
-	//write_vertex_normal(output, glm::ivec3(0, 1, 0)); // top = 6
-	//size_t voxels_written = 0;
 
 	assert(output);
-	for (size_t x = 0; x < v_info.gridsize.x; x++) {
-		for (size_t y = 0; y < v_info.gridsize.y; y++) {
-			for (size_t z = 0; z < v_info.gridsize.z; z++) {
-#ifndef SILENT
+	size_t voxels_seen = 0;
+	size_t total_voxels = (size_t)v_info.gridsize.x
+	                    * (size_t)v_info.gridsize.y
+	                    * (size_t)v_info.gridsize.z;
+
+	for (int x = 0; x < (int)v_info.gridsize.x; x++) {
+		for (int y = 0; y < (int)v_info.gridsize.y; y++) {
+			for (int z = 0; z < (int)v_info.gridsize.z; z++) {
 				voxels_seen++;
-				if (voxels_seen == write_stats_25) {fprintf(stdout, "25%%...");}
-				else if (voxels_seen == write_stats_25 * size_t(2)) {fprintf(stdout, "50%%...");}
-				else if (voxels_seen == write_stats_25 * size_t(3)) {fprintf(stdout, "75%%...");}
-#endif
-				if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-					//voxels_written += 1;
-					write_cube(static_cast<int>(x), static_cast<int>(y), static_cast<int>(z), output);
+				if (checkVoxel((size_t)x, (size_t)y, (size_t)z, v_info.gridsize, vtable)) {
+					write_cube(x, y, z, output);
 				}
 			}
 		}
 	}
-#ifndef SILENT
-	fprintf(stdout, "100%% \n");
-#endif
-	// std::cout << "written " << voxels_written << std::endl;
+	output.close();
 
+	// Optionally reorder / optimize the mesh with TriMesh2:
 #ifndef SILENT
 	fprintf(stdout, "[I/O] Reordering / Optimizing mesh with Trimesh2 \n");
 #endif
-	// Load the file using TriMesh2
-	trimesh::TriMesh* temp_mesh = trimesh::TriMesh::read(filename_output.c_str());	
+	trimesh::TriMesh* temp_mesh = trimesh::TriMesh::read(filename_output.c_str());
 	trimesh::reorder_verts(temp_mesh);
-	//trimesh::faceflip(temp_mesh);
-	//trimesh::edgeflip(temp_mesh);
-	//temp_mesh->clear_normals();
-	//temp_mesh->need_normals();
-#ifndef SILENT
-	fprintf(stdout, "[I/O] Writing final mesh to file %s \n", filename_output.c_str());
-#endif
 	temp_mesh->write(filename_output.c_str());
-
-	output.close();
+	if (temp_mesh) delete temp_mesh;
 }
 
-void write_obj_pointcloud(const unsigned int* vtable, const voxinfo v_info, const std::string base_filename) {
-	string filename_output = base_filename + string("_") + to_string(v_info.gridsize.x) + string("_pointcloud.obj");
-	ofstream output(filename_output.c_str(), ios::out);
+void write_obj_pointcloud(const unsigned int* vtable,
+                          const voxinfo v_info,
+                          const std::string base_filename) {
+	std::lock_guard<std::mutex> lock(io_mutex);
+
+	std::string filename_output = base_filename
+		+ std::string("_") + std::to_string(v_info.gridsize.x)
+		+ std::string("_pointcloud.obj");
+	std::ofstream output(filename_output.c_str(), std::ios::out);
 
 #ifndef SILENT
-	fprintf(stdout, "[I/O] Writing data in obj point cloud format to %s \n", filename_output.c_str());
-	size_t voxels_seen = 0;
-	const size_t write_stats_25 = (size_t(v_info.gridsize.x) * size_t(v_info.gridsize.y) * size_t(v_info.gridsize.z)) / 4.0f;
-	fprintf(stdout, "[I/O] Writing to file: 0%%...");
+	fprintf(stdout, "[I/O] Writing data in obj point cloud format to %s \n",
+	        filename_output.c_str());
 #endif
-
-	// write stats
-	size_t voxels_written = 0;
-
 	assert(output);
-	for (size_t x = 0; x < v_info.gridsize.x; x++) {
-		for (size_t y = 0; y < v_info.gridsize.y; y++) {
-			for (size_t z = 0; z < v_info.gridsize.z; z++) {
-#ifndef SILENT
-				voxels_seen++;
-				if (voxels_seen == write_stats_25) { fprintf(stdout, "25%%...");}
-				else if (voxels_seen == write_stats_25 * size_t(2)) { fprintf(stdout, "50%%...");}
-				else if (voxels_seen == write_stats_25 * size_t(3)) {fprintf(stdout, "75%%...");}
-#endif
-				if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-					voxels_written += 1;
-					output << "v " << (x+0.5) << " " << (y + 0.5) << " " << (z + 0.5) << endl; // +0.5 to put vertex in the middle of the voxel
+
+	for (int x = 0; x < (int)v_info.gridsize.x; x++) {
+		for (int y = 0; y < (int)v_info.gridsize.y; y++) {
+			for (int z = 0; z < (int)v_info.gridsize.z; z++) {
+				if (checkVoxel((size_t)x, (size_t)y, (size_t)z, v_info.gridsize, vtable)) {
+					// +0.5 to put vertex in the middle
+					output << "v " << (x+0.5f) << " " << (y+0.5f) << " " << (z+0.5f) << std::endl;
 				}
 			}
 		}
 	}
-#ifndef SILENT
-	fprintf(stdout, "100%% \n");
-#endif
-	// std::cout << "written " << voxels_written << std::endl;
 	output.close();
 }
 
 void write_binary(void* data, size_t bytes, const std::string base_filename){
-	string filename_output = base_filename + string(".bin");
+	std::lock_guard<std::mutex> lock(io_mutex);
+
+	std::string filename_output = base_filename + ".bin";
 #ifndef SILENT
-	fprintf(stdout, "[I/O] Writing data in binary format to %s (%s) \n", filename_output.c_str(), readableSize(bytes).c_str());
+	fprintf(stdout, "[I/O] Writing data in binary format to %s (%s) \n",
+	        filename_output.c_str(), readableSize(bytes).c_str());
 #endif
-	ofstream output(filename_output.c_str(), ios_base::out | ios_base::binary);
+	std::ofstream output(filename_output.c_str(), std::ios::out | std::ios::binary);
 	output.write((char*)data, bytes);
 	output.close();
 }
 
-void write_binvox(const unsigned int* vtable, const voxinfo v_info, const std::string base_filename){
-	// Open file
-	string filename_output = base_filename + string("_") + to_string(v_info.gridsize.x) + string(".binvox");
-#ifndef SILENT
-	fprintf(stdout, "[I/O] Writing data in binvox format to %s \n", filename_output.c_str());
-#endif
-	ofstream output(filename_output.c_str(), ios::out | ios::binary);
-	assert(output);
-	// Write ASCII header
-	output << "#binvox 1" << endl;
-	output << "dim " << v_info.gridsize.x << " " << v_info.gridsize.y << " " << v_info.gridsize.z << "" << endl;
-	output << "translate " << v_info.bbox.min.x << " " << v_info.bbox.min.y << " " << v_info.bbox.min.z << endl;
-	output << "scale " << max(max(v_info.bbox.max.x - v_info.bbox.min.x, v_info.bbox.max.y - v_info.bbox.min.y), 
-		v_info.bbox.max.z - v_info.bbox.min.z) << endl;
-	output << "data" << endl;
+// Write data in .binvox format
+void write_binvox(const unsigned int* vtable,
+                  const voxinfo v_info,
+                  const std::string base_filename){
+	std::lock_guard<std::mutex> lock(io_mutex);
 
-	// Write BINARY Data (and compress it a bit using run-length encoding)
+	std::string filename_output = base_filename + "_"
+		+ std::to_string(v_info.gridsize.x) + ".binvox";
+#ifndef SILENT
+	fprintf(stdout, "[I/O] Writing data in binvox format to %s \n",
+	        filename_output.c_str());
+#endif
+	std::ofstream output(filename_output.c_str(), std::ios::out | std::ios::binary);
+	assert(output);
+
+	// ASCII header
+	output << "#binvox 1\n";
+	output << "dim " << v_info.gridsize.x << " "
+	                << v_info.gridsize.y << " "
+	                << v_info.gridsize.z << "\n";
+	output << "translate " << v_info.bbox.min.x << " "
+	                     << v_info.bbox.min.y << " "
+	                     << v_info.bbox.min.z << "\n";
+	float scale_ = std::max(
+	    std::max(v_info.bbox.max.x - v_info.bbox.min.x,
+	             v_info.bbox.max.y - v_info.bbox.min.y),
+	             v_info.bbox.max.z - v_info.bbox.min.z
+	);
+	output << "scale " << scale_ << "\n";
+	output << "data\n";
+
+	// BINARY Data (run-length encoding)
 	char currentvalue, current_seen;
-	for (size_t x = 0; x < v_info.gridsize.x; x++){
-		for (size_t z = 0; z < v_info.gridsize.z; z++){
-			for (size_t y = 0; y < v_info.gridsize.y; y++){
-				if (x == 0 && y == 0 && z == 0){ // special case: first voxel
-					currentvalue = checkVoxel(0, 0, 0, v_info.gridsize, vtable);
-					output.write((char*)&currentvalue, 1);
-					current_seen = 1;
-					continue;
-				}
-				char nextvalue = checkVoxel(x, y, z, v_info.gridsize, vtable);
-				if (nextvalue != currentvalue || current_seen == (char) 255){
-					output.write((char*)&current_seen, 1);
-					current_seen = 1;
+	bool first = true;
+	for (int x = 0; x < (int)v_info.gridsize.x; x++){
+		for (int z = 0; z < (int)v_info.gridsize.z; z++){
+			for (int y = 0; y < (int)v_info.gridsize.y; y++){
+				char nextvalue = (checkVoxel((size_t)x, (size_t)y, (size_t)z,
+				                             v_info.gridsize, vtable)) ? 1 : 0;
+
+				if (first){
 					currentvalue = nextvalue;
-					output.write((char*)&currentvalue, 1);
-				}
-				else {
-					current_seen++;
+					current_seen = 1;
+					first = false;
+				} else {
+					if (nextvalue != currentvalue || current_seen == (char)255){
+						output.write((char*)&current_seen, 1);
+						output.write((char*)&currentvalue, 1);
+						current_seen = 1;
+						currentvalue = nextvalue;
+					}
+					else {
+						current_seen++;
+					}
 				}
 			}
 		}
 	}
-
-	// Write rest
+	// final
 	output.write((char*)&current_seen, 1);
+	output.write((char*)&currentvalue, 1);
 	output.close();
 }
 
 // Experimental MagicaVoxel file format output
-// Experimental MagicaVoxel file format output
-void write_vox(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
-    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".vox";
+void write_vox(const unsigned int* vtable,
+               const uchar4* color_table,
+               const voxinfo v_info,
+               const std::string base_filename) {
+    std::lock_guard<std::mutex> lock(io_mutex);
+
+    std::string filename_output = base_filename + "_"
+            + std::to_string(v_info.gridsize.x) + ".vox";
+
+#ifndef SILENT
+    fprintf(stdout, "[I/O] Writing data in vox format to %s\n", filename_output.c_str());
+#endif
+
     vox::VoxWriter voxwriter;
-    
-    // Initialize color index mapping
     std::map<uint32_t, uint8_t> color_map;
-    uint8_t current_color_index = 1; // Start from 1 because 0 is reserved
+    uint8_t current_color_index = 1; // Start from 1, as 0 is reserved
 
-#ifndef SILENT
-    fprintf(stdout, "[I/O] Writing data in vox format to %s \n", filename_output.c_str());
+    size_t total_voxels = (size_t)v_info.gridsize.x
+                        * (size_t)v_info.gridsize.y
+                        * (size_t)v_info.gridsize.z;
+    for (int x = 0; x < (int)v_info.gridsize.x; x++) {
+        for (int y = 0; y < (int)v_info.gridsize.y; y++) {
+            for (int z = 0; z < (int)v_info.gridsize.z; z++) {
+                if (checkVoxel((size_t)x, (size_t)y, (size_t)z,
+                               v_info.gridsize, vtable)) {
+                    size_t idx = (size_t)x + (size_t)y * v_info.gridsize.x
+                               + (size_t)z * (v_info.gridsize.x * v_info.gridsize.y);
+                    uchar4 c = color_table[idx];
 
-    // Write stats
-    size_t voxels_seen = 0;
-    const size_t write_stats_25 = (size_t(v_info.gridsize.x) * size_t(v_info.gridsize.y) * size_t(v_info.gridsize.z)) / 4.0f;
-    fprintf(stdout, "[I/O] Writing to file: 0%%...");
-    size_t voxels_written = 0;
-#endif
-
-    for (size_t x = 0; x < v_info.gridsize.x; x++) {
-        for (size_t y = 0; y < v_info.gridsize.y; y++) {
-            for (size_t z = 0; z < v_info.gridsize.z; z++) {
-#ifndef SILENT
-                // Progress stats
-                voxels_seen++;
-                if (voxels_seen == write_stats_25) { fprintf(stdout, "25%%..."); }
-                else if (voxels_seen == write_stats_25 * size_t(2)) { fprintf(stdout, "50%%..."); }
-                else if (voxels_seen == write_stats_25 * size_t(3)) { fprintf(stdout, "75%%..."); }
-#endif
-                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
-                    uchar4 color = color_table[voxel_index];
-
-                    // Pack color into a single uint32_t
-                    uint32_t packed_color = (color.x << 24) | (color.y << 16) | (color.z << 8) | color.w;
-
-                    // Check if color already has an index
+                    uint32_t packed_color = ((uint32_t)c.x << 24)
+                                          | ((uint32_t)c.y << 16)
+                                          | ((uint32_t)c.z << 8)
+                                          | ((uint32_t)c.w);
                     if (color_map.find(packed_color) == color_map.end()) {
-                        // New color, assign a new index
-                        voxwriter.AddColor(color.x, color.y, color.z, color.w, current_color_index);
+                        voxwriter.AddColor(c.x, c.y, c.z, c.w, current_color_index);
                         color_map[packed_color] = current_color_index;
                         current_color_index++;
                     }
-
                     uint8_t color_index = color_map[packed_color];
 
-                    // Add voxel with color index
+                    // MagicaVoxel coordinate flip
                     voxwriter.AddVoxel(x, -z + v_info.gridsize.z, y, color_index);
                 }
             }
         }
     }
-#ifndef SILENT
-    fprintf(stdout, "100%% \n");
-#endif
     voxwriter.SaveToFile(filename_output);
 }
 
+void write_gltf(const unsigned int* vtable,
+                const uchar4* color_table,
+                const voxinfo v_info,
+                const std::string base_filename) {
+    std::lock_guard<std::mutex> lock(io_mutex);
 
+    std::string filename_output = base_filename + "_"
+                                + std::to_string(v_info.gridsize.x)
+                                + ".glb";
 
-void write_gltf(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
-    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".glb";
+#ifndef SILENT
+    fprintf(stdout, "[I/O] Writing data in glb format to %s\n", filename_output.c_str());
+#endif
+
     tinygltf::Model model;
     tinygltf::TinyGLTF gltf;
 
@@ -328,55 +326,53 @@ void write_gltf(const unsigned int* vtable, const uchar4* color_table, const vox
     std::vector<uint32_t> indices32;
 
     bool use_uint32 = false;
-    size_t estimated_vertices = v_info.gridsize.x * v_info.gridsize.y * v_info.gridsize.z * 8;
-    if (estimated_vertices > 65535) {
+    size_t estimated_vertices = (size_t)v_info.gridsize.x
+                              * (size_t)v_info.gridsize.y
+                              * (size_t)v_info.gridsize.z * 8ULL;
+    if (estimated_vertices > 65535ULL) {
         use_uint32 = true;
     }
 
     uint32_t index = 0;
-    const float voxel_size = 1.0f; // Define a consistent voxel size
+    const float voxel_size = 1.0f;
 
-    // Define the vertex positions for a unit cube
-    const float cube_vertices[8][3] = {
-        {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-        {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}
+    // define unit-cube for each voxel
+    static const float cube_verts[8][3] = {
+        {0,0,0}, {1,0,0}, {1,1,0}, {0,1,0},
+        {0,0,1}, {1,0,1}, {1,1,1}, {0,1,1}
+    };
+    static const uint16_t cube_idx[36] = {
+        0,2,1, 0,3,2,
+        1,6,5, 1,2,6,
+        5,7,4, 5,6,7,
+        4,3,0, 4,7,3,
+        3,6,2, 3,7,6,
+        4,1,5, 4,0,1
     };
 
-    // Define the indices for the 12 triangles of a cube (2 triangles per face)
-    const uint16_t cube_indices[36] = {
-        0, 2, 1, 0, 3, 2, // Front face
-        1, 6, 5, 1, 2, 6, // Right face
-        5, 7, 4, 5, 6, 7, // Back face
-        4, 3, 0, 4, 7, 3, // Left face
-        3, 6, 2, 3, 7, 6, // Top face
-        4, 1, 5, 4, 0, 1  // Bottom face
-    };
+    // gather data
+    for (int x = 0; x < (int)v_info.gridsize.x; x++){
+        for (int y = 0; y < (int)v_info.gridsize.y; y++){
+            for (int z = 0; z < (int)v_info.gridsize.z; z++){
+                if (checkVoxel((size_t)x, (size_t)y, (size_t)z, v_info.gridsize, vtable)){
+                    size_t voxel_index = (size_t)x + (size_t)y*v_info.gridsize.x
+                                       + (size_t)z*(v_info.gridsize.x*v_info.gridsize.y);
+                    uchar4 c = color_table[voxel_index];
+                    for (int v = 0; v < 8; v++){
+                        positions.push_back(x + cube_verts[v][0] * voxel_size);
+                        positions.push_back(y + cube_verts[v][1] * voxel_size);
+                        positions.push_back(z + cube_verts[v][2] * voxel_size);
 
-
-
-    for (size_t x = 0; x < v_info.gridsize.x; x++) {
-        for (size_t y = 0; y < v_info.gridsize.y; y++) {
-            for (size_t z = 0; z < v_info.gridsize.z; z++) {
-                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
-                    uchar4 color = color_table[voxel_index];
-
-                    for (int v = 0; v < 8; ++v) {
-                        positions.push_back(static_cast<float>(x) + cube_vertices[v][0] * voxel_size);
-                        positions.push_back(static_cast<float>(y) + cube_vertices[v][1] * voxel_size);
-                        positions.push_back(static_cast<float>(z) + cube_vertices[v][2] * voxel_size);
-
-                        colors.push_back(color.x);
-                        colors.push_back(color.y);
-                        colors.push_back(color.z);
-                        colors.push_back(255);  // Ensure full opacity
+                        colors.push_back(c.x);
+                        colors.push_back(c.y);
+                        colors.push_back(c.z);
+                        colors.push_back(255); // full alpha
                     }
-
-                    for (int i = 0; i < 36; ++i) {
-                        if (use_uint32) {
-                            indices32.push_back(index + cube_indices[i]);
+                    for (int i = 0; i < 36; i++){
+                        if (use_uint32){
+                            indices32.push_back(index + cube_idx[i]);
                         } else {
-                            indices16.push_back(index + cube_indices[i]);
+                            indices16.push_back((uint16_t)(index + cube_idx[i]));
                         }
                     }
                     index += 8;
@@ -385,321 +381,485 @@ void write_gltf(const unsigned int* vtable, const uchar4* color_table, const vox
         }
     }
 
-    // Create a buffer
-    size_t buffer_size = positions.size() * sizeof(float) + colors.size() * sizeof(uint8_t);
-    if (use_uint32) {
-        buffer_size += indices32.size() * sizeof(uint32_t);
+    // Create a single buffer with positions, colors, indices
+    size_t posBytes = positions.size()*sizeof(float);
+    size_t colBytes = colors.size()*sizeof(uint8_t);
+    size_t idxBytes = 0;
+    if (use_uint32){
+        idxBytes = indices32.size()*sizeof(uint32_t);
     } else {
-        buffer_size += indices16.size() * sizeof(uint16_t);
+        idxBytes = indices16.size()*sizeof(uint16_t);
     }
+    size_t totalBytes = posBytes + colBytes + idxBytes;
 
     tinygltf::Buffer buffer;
-    buffer.data.resize(buffer_size);
+    buffer.data.resize(totalBytes);
 
     size_t offset = 0;
-    memcpy(buffer.data.data() + offset, positions.data(), positions.size() * sizeof(float));
-    offset += positions.size() * sizeof(float);
-    memcpy(buffer.data.data() + offset, colors.data(), colors.size() * sizeof(uint8_t));
-    offset += colors.size() * sizeof(uint8_t);
-    if (use_uint32) {
-        memcpy(buffer.data.data() + offset, indices32.data(), indices32.size() * sizeof(uint32_t));
+    memcpy(buffer.data.data() + offset, positions.data(), posBytes);
+    offset += posBytes;
+    memcpy(buffer.data.data() + offset, colors.data(), colBytes);
+    offset += colBytes;
+    if (use_uint32){
+        memcpy(buffer.data.data() + offset, indices32.data(), idxBytes);
     } else {
-        memcpy(buffer.data.data() + offset, indices16.data(), indices16.size() * sizeof(uint16_t));
+        memcpy(buffer.data.data() + offset, indices16.data(), idxBytes);
     }
-
     model.buffers.push_back(buffer);
 
     // Create buffer views
-    tinygltf::BufferView posBufferView;
-    posBufferView.buffer = 0;
-    posBufferView.byteOffset = 0;
-    posBufferView.byteLength = positions.size() * sizeof(float);
-    posBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
-    model.bufferViews.push_back(posBufferView);
+    tinygltf::BufferView posView;
+    posView.buffer = 0;
+    posView.byteOffset = 0;
+    posView.byteLength = posBytes;
+    posView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(posView);
 
-    tinygltf::BufferView colorBufferView;
-    colorBufferView.buffer = 0;
-    colorBufferView.byteOffset = posBufferView.byteLength;
-    colorBufferView.byteLength = colors.size() * sizeof(uint8_t);
-    colorBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
-    model.bufferViews.push_back(colorBufferView);
+    tinygltf::BufferView colView;
+    colView.buffer = 0;
+    colView.byteOffset = posView.byteLength;
+    colView.byteLength = colBytes;
+    colView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    model.bufferViews.push_back(colView);
 
-    tinygltf::BufferView indexBufferView;
-    indexBufferView.buffer = 0;
-    indexBufferView.byteOffset = posBufferView.byteLength + colorBufferView.byteLength;
-    if (use_uint32) {
-        indexBufferView.byteLength = indices32.size() * sizeof(uint32_t);
-        indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
-        model.bufferViews.push_back(indexBufferView);
-    } else {
-        indexBufferView.byteLength = indices16.size() * sizeof(uint16_t);
-        indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
-        model.bufferViews.push_back(indexBufferView);
-    }
+    tinygltf::BufferView idxView;
+    idxView.buffer = 0;
+    idxView.byteOffset = posView.byteLength + colView.byteLength;
+    idxView.byteLength = idxBytes;
+    idxView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+    model.bufferViews.push_back(idxView);
 
-    // Create accessors
+    // Accessors
     tinygltf::Accessor posAccessor;
     posAccessor.bufferView = 0;
     posAccessor.byteOffset = 0;
     posAccessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    posAccessor.count = positions.size() / 3;
+    posAccessor.count = positions.size()/3;
     posAccessor.type = TINYGLTF_TYPE_VEC3;
-
-	posAccessor.minValues = {positions[0], positions[1], positions[2]};
-	posAccessor.maxValues = {positions[0], positions[1], positions[2]};
-	for (size_t i = 3; i < positions.size(); i += 3) {
-		if (positions[i] < posAccessor.minValues[0]) posAccessor.minValues[0] = positions[i];
-		if (positions[i + 1] < posAccessor.minValues[1]) posAccessor.minValues[1] = positions[i + 1];
-		if (positions[i + 2] < posAccessor.minValues[2]) posAccessor.minValues[2] = positions[i + 2];
-		if (positions[i] > posAccessor.maxValues[0]) posAccessor.maxValues[0] = positions[i];
-		if (positions[i + 1] > posAccessor.maxValues[1]) posAccessor.maxValues[1] = positions[i + 1];
-		if (positions[i + 2] > posAccessor.maxValues[2]) posAccessor.maxValues[2] = positions[i + 2];
-	}
-
+    // min/max
+    if (!positions.empty()){
+        posAccessor.minValues = {positions[0], positions[1], positions[2]};
+        posAccessor.maxValues = {positions[0], positions[1], positions[2]};
+        for (size_t i = 3; i < positions.size(); i += 3){
+            posAccessor.minValues[0] = std::min(posAccessor.minValues[0], double(positions[i+0]));
+            posAccessor.minValues[1] = std::min(posAccessor.minValues[1], double(positions[i+1]));
+            posAccessor.minValues[2] = std::min(posAccessor.minValues[2], double(positions[i+2]));
+            posAccessor.maxValues[0] = std::max(posAccessor.maxValues[0], double(positions[i+0]));
+            posAccessor.maxValues[1] = std::max(posAccessor.maxValues[1], double(positions[i+1]));
+            posAccessor.maxValues[2] = std::max(posAccessor.maxValues[2], double(positions[i+2]));
+        }
+    }
     model.accessors.push_back(posAccessor);
 
-    tinygltf::Accessor colorAccessor;
-    colorAccessor.bufferView = 1;
-    colorAccessor.byteOffset = 0;
-    colorAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-    colorAccessor.count = colors.size() / 4;
-    colorAccessor.type = TINYGLTF_TYPE_VEC4;
-    colorAccessor.normalized = true;
-    model.accessors.push_back(colorAccessor);
+    tinygltf::Accessor colAccessor;
+    colAccessor.bufferView = 1;
+    colAccessor.byteOffset = 0;
+    colAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+    colAccessor.count = colors.size()/4;
+    colAccessor.type = TINYGLTF_TYPE_VEC4;
+    colAccessor.normalized = true;
+    model.accessors.push_back(colAccessor);
 
-    tinygltf::Accessor indexAccessor;
-    indexAccessor.bufferView = 2;
-    indexAccessor.byteOffset = 0;
-    if (use_uint32) {
-        indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
-        indexAccessor.count = indices32.size();
+    tinygltf::Accessor idxAccessor;
+    idxAccessor.bufferView = 2;
+    idxAccessor.byteOffset = 0;
+    if (use_uint32){
+        idxAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+        idxAccessor.count = indices32.size();
     } else {
-        indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
-        indexAccessor.count = indices16.size();
+        idxAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+        idxAccessor.count = indices16.size();
     }
-    indexAccessor.type = TINYGLTF_TYPE_SCALAR;
-    model.accessors.push_back(indexAccessor);
+    idxAccessor.type = TINYGLTF_TYPE_SCALAR;
+    model.accessors.push_back(idxAccessor);
 
     // Create a primitive
-    tinygltf::Primitive primitive;
-    primitive.attributes["POSITION"] = 0;
-    primitive.attributes["COLOR_0"] = 1;
-    primitive.indices = 2;
-    primitive.mode = TINYGLTF_MODE_TRIANGLES;
+    tinygltf::Primitive prim;
+    prim.attributes["POSITION"] = 0;
+    prim.attributes["COLOR_0"] = 1;
+    prim.indices = 2;
+    prim.mode = TINYGLTF_MODE_TRIANGLES;
 
     // Create a mesh
     tinygltf::Mesh mesh;
-    mesh.primitives.push_back(primitive);
+    mesh.primitives.push_back(prim);
+    model.meshes.push_back(mesh);
 
     // Create a node
     tinygltf::Node node;
-    node.mesh = model.meshes.size();
+    node.mesh = (int)(model.meshes.size()-1);
     model.nodes.push_back(node);
-
-    // Add mesh to model
-    model.meshes.push_back(mesh);
 
     // Create a scene
     tinygltf::Scene scene;
-    scene.nodes.push_back(0);
-
-    // Add scene to model
+    scene.nodes.push_back((int)model.nodes.size()-1);
     model.scenes.push_back(scene);
     model.defaultScene = 0;
 
-    // Save the model to a file
     gltf.WriteGltfSceneToFile(&model, filename_output, true, true, true, true);
 }
 
+void write_indexed_json(const unsigned int* vtable,
+                        const uchar4* color_table,
+                        const voxinfo v_info,
+                        const std::string base_filename){
+    std::lock_guard<std::mutex> lock(io_mutex);
 
-// Assuming `write_gltf` is defined as provided
+    std::string filename_output = base_filename + "_"
+                                + std::to_string(v_info.gridsize.x)
+                                + ".json";
 
-void write_gltf_with_draco(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
+#ifndef SILENT
+    fprintf(stdout, "[I/O] Writing data in indexed JSON format to %s\n", filename_output.c_str());
+#endif
 
-}
-
-void write_gltf_pointcloud(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
-    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".glb";
-    tinygltf::Model model;
-    tinygltf::TinyGLTF gltf;
-
-    std::vector<float> positions;
-    std::vector<uint8_t> colors;
-    std::vector<uint16_t> indices;
-
-    uint16_t index = 0;
-
-    for (size_t x = 0; x < v_info.gridsize.x; x++) {
-        for (size_t y = 0; y < v_info.gridsize.y; y++) {
-            for (size_t z = 0; z < v_info.gridsize.z; z++) {
-                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
-                    uchar4 color = color_table[voxel_index];
-
-                    positions.push_back(static_cast<float>(x));
-                    positions.push_back(static_cast<float>(y));
-                    positions.push_back(static_cast<float>(z));
-
-                    colors.push_back(color.x);
-                    colors.push_back(color.y);
-                    colors.push_back(color.z);
-                    colors.push_back(color.w);
-
-                    indices.push_back(index++);
-                }
-            }
-        }
-    }
-
-    // Create a buffer
-    tinygltf::Buffer buffer;
-    buffer.data.resize(positions.size() * sizeof(float) + colors.size() * sizeof(uint8_t) + indices.size() * sizeof(uint16_t));
-
-    size_t offset = 0;
-    memcpy(buffer.data.data() + offset, positions.data(), positions.size() * sizeof(float));
-    offset += positions.size() * sizeof(float);
-    memcpy(buffer.data.data() + offset, colors.data(), colors.size() * sizeof(uint8_t));
-    offset += colors.size() * sizeof(uint8_t);
-    memcpy(buffer.data.data() + offset, indices.data(), indices.size() * sizeof(uint16_t));
-
-    model.buffers.push_back(buffer);
-
-    // Create buffer views
-    tinygltf::BufferView posBufferView;
-    posBufferView.buffer = 0;
-    posBufferView.byteOffset = 0;
-    posBufferView.byteLength = positions.size() * sizeof(float);
-    posBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
-    model.bufferViews.push_back(posBufferView);
-
-    tinygltf::BufferView colorBufferView;
-    colorBufferView.buffer = 0;
-    colorBufferView.byteOffset = posBufferView.byteLength;
-    colorBufferView.byteLength = colors.size() * sizeof(uint8_t);
-    colorBufferView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
-    model.bufferViews.push_back(colorBufferView);
-
-    tinygltf::BufferView indexBufferView;
-    indexBufferView.buffer = 0;
-    indexBufferView.byteOffset = posBufferView.byteLength + colorBufferView.byteLength;
-    indexBufferView.byteLength = indices.size() * sizeof(uint16_t);
-    indexBufferView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
-    model.bufferViews.push_back(indexBufferView);
-
-    // Create accessors
-    tinygltf::Accessor posAccessor;
-    posAccessor.bufferView = 0;
-    posAccessor.byteOffset = 0;
-    posAccessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    posAccessor.count = positions.size() / 3;
-    posAccessor.type = TINYGLTF_TYPE_VEC3;
-    model.accessors.push_back(posAccessor);
-
-    tinygltf::Accessor colorAccessor;
-    colorAccessor.bufferView = 1;
-    colorAccessor.byteOffset = 0;
-    colorAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-    colorAccessor.count = colors.size() / 4;
-    colorAccessor.type = TINYGLTF_TYPE_VEC4;
-    colorAccessor.normalized = true;
-    model.accessors.push_back(colorAccessor);
-
-    tinygltf::Accessor indexAccessor;
-    indexAccessor.bufferView = 2;
-    indexAccessor.byteOffset = 0;
-    indexAccessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
-    indexAccessor.count = indices.size();
-    indexAccessor.type = TINYGLTF_TYPE_SCALAR;
-    model.accessors.push_back(indexAccessor);
-
-    // Create a primitive
-    tinygltf::Primitive primitive;
-    primitive.attributes["POSITION"] = 0;
-    primitive.attributes["COLOR_0"] = 1;
-    primitive.indices = 2;
-    primitive.mode = TINYGLTF_MODE_POINTS;
-
-    // Create a mesh
-    tinygltf::Mesh mesh;
-    mesh.primitives.push_back(primitive);
-
-    // Create a node
-    tinygltf::Node node;
-    node.mesh = model.meshes.size();
-    model.nodes.push_back(node);
-
-    // Add mesh to model
-    model.meshes.push_back(mesh);
-
-    // Create a scene
-    tinygltf::Scene scene;
-    scene.nodes.push_back(model.nodes.size() - 1);
-
-    // Add scene to model
-    model.scenes.push_back(scene);
-    model.defaultScene = model.scenes.size() - 1;
-
-    // Save the model to a file
-    gltf.WriteGltfSceneToFile(&model, filename_output, true, true, true, true);
-}
-
-void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename) {
-    std::string filename_output = base_filename + "_" + std::to_string(v_info.gridsize.x) + ".json";
-    
-    // uint16_t allows up to 65535 colors
+    // Build color map
     std::map<std::string, uint16_t> color_map;
     uint16_t current_color_index = 1;
-    
-    std::vector<std::vector<int>> blockArray;
     nlohmann::json blocks_json;
-    
-    // int debug_counter = 0;
-    // const int max_debug = 5;
-    
-    for (size_t x = 0; x < v_info.gridsize.x; x++) {
-        for (size_t y = 0; y < v_info.gridsize.y; y++) {
-            for (size_t z = 0; z < v_info.gridsize.z; z++) {
-                if (checkVoxel(x, y, z, v_info.gridsize, vtable)) {
-                    size_t voxel_index = x + (y * v_info.gridsize.x) + (z * v_info.gridsize.x * v_info.gridsize.y);
-                    uchar4 color = color_table[voxel_index];
-                    
-                    // Create a string key for the color in "R,G,B" format
-                    std::string color_key = std::to_string(color.x) + "," + std::to_string(color.y) + "," + std::to_string(color.z);
-                    
-                    // If the color is not already in the map, add it
-                    if (color_map.find(color_key) == color_map.end()) {
+    std::vector<std::vector<int>> blockArray;
+
+   const float3 bmin = v_info.bbox.min;    // this is cubeBox.min
+   const float3 unit = v_info.unit;        // voxel size in object units (you already use this on GPU)
+   const int ox = (int)std::llround((-bmin.x) / unit.x);
+   const int oy = (int)std::llround((-bmin.y) / unit.y);
+   const int oz = (int)std::llround((-bmin.z) / unit.z);
+
+    for (int x = 0; x < (int)v_info.gridsize.x; x++){
+        for (int y = 0; y < (int)v_info.gridsize.y; y++){
+            for (int z = 0; z < (int)v_info.gridsize.z; z++){
+                if (checkVoxel((size_t)x, (size_t)y, (size_t)z, v_info.gridsize, vtable)){
+                    size_t idx = (size_t)x + (size_t)y*v_info.gridsize.x
+                               + (size_t)z*(v_info.gridsize.x*v_info.gridsize.y);
+                    uchar4 c = color_table[idx];
+                    std::string color_key = std::to_string(c.x)+","+
+                                            std::to_string(c.y)+","+
+                                            std::to_string(c.z);
+
+                    if (color_map.find(color_key) == color_map.end()){
                         color_map[color_key] = current_color_index;
-                        // Store the RGB values in blocks_json
-                        blocks_json[std::to_string(current_color_index)] = {color.x, color.y, color.z};
-                        
-                        // if (debug_counter < max_debug) {
-                        //     printf("Mapping Color Index %d to Color (%d, %d, %d)\n", current_color_index, color.x, color.y, color.z);
-                        //     debug_counter++;
-                        // }
-                        
+                        blocks_json[std::to_string(current_color_index)]
+                            = {c.x, c.y, c.z};
                         current_color_index++;
                     }
-                    
-                    uint16_t color_index = color_map[color_key];
-                    blockArray.push_back({static_cast<int>(x), static_cast<int>(y), static_cast<int>(z), static_cast<int>(color_index)});
+                    uint16_t cindex = color_map[color_key];
+                    // blockArray.push_back({x,y,z,(int)cindex});
+                    blockArray.push_back({x - ox, y - oy, z - oz, (int)cindex});
                 }
             }
         }
     }
-    
-    // Serialize to JSON with no extra spaces
-    nlohmann::json json_output;
-    json_output["blocks"] = blocks_json;
-    json_output["xyzi"] = blockArray;
-    
-    // Write the JSON to a file
+
+    nlohmann::json j;
+    j["blocks"] = blocks_json;
+    j["xyzi"]   = blockArray;
+
     std::ofstream file(filename_output);
-    if (!file.is_open()) {
-        fprintf(stderr, "[Error] Could not open file for writing: %s\n", filename_output.c_str());
+    if (!file.is_open()){
+        fprintf(stderr, "[Error] Could not open %s for writing\n", filename_output.c_str());
         return;
     }
-    file << json_output.dump();
+    file << j.dump();
     file.close();
-    
-    fprintf(stdout, "[I/O] Written indexed JSON to %s\n", filename_output.c_str());
 }
+
+static void write_u32(std::ofstream &out, uint32_t value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+static void write_u16(std::ofstream &out, uint16_t value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+static void write_u8(std::ofstream &out, uint8_t value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+static std::vector<char> compress_chunk_data(const char* inputData, int inputSize) {
+    // same code from your snippet
+    std::vector<char> output;
+    int i = 0;
+    while (i < inputSize) {
+        if (i <= inputSize - 3 &&
+            inputData[i] == inputData[i+1] &&
+            inputData[i] == inputData[i+2]) {
+            int runLength = 3;
+            while (i+runLength < inputSize &&
+                   inputData[i+runLength] == inputData[i] &&
+                   runLength < 128) {
+                runLength++;
+            }
+            char header = (char)(1-runLength);
+            output.push_back(header);
+            output.push_back(inputData[i]);
+            i += runLength;
+        } else {
+            int literalStart = i;
+            i++;
+            while (i < inputSize) {
+                if (i <= inputSize - 3 &&
+                    inputData[i] == inputData[i+1] &&
+                    inputData[i] == inputData[i+2]){
+                    break;
+                }
+                if ((i - literalStart) >= 128) break;
+                i++;
+            }
+            int literalCount = i - literalStart;
+            char header = (char)(literalCount - 1);
+            output.push_back(header);
+            for (int k = literalStart; k < i; k++){
+                output.push_back(inputData[k]);
+            }
+        }
+    }
+    return output;
+}
+
+// The chunk-based (VXCH) writer from your snippet
+void write_indexed_binary(const unsigned int* vtable,
+                          const uchar4* color_table,
+                          const voxinfo v_info,
+                          const std::string base_filename){
+    std::lock_guard<std::mutex> lock(io_mutex);
+
+    // same code as your "write_indexed_binary" snippet
+    // building color palette, chunking, compressing, etc.
+    // ...
+    // For clarity, we replicate it *exactly*:
+    // --------------------------------------------------
+    // (BEGIN your original code)
+    // (We do not repeat it verbatim here in the assistant's explanation,
+    //  but in your final file, copy your entire chunk-based function.)
+    // --------------------------------------------------
+
+    // Full code from your snippet is inserted below:
+
+    // ---------------------------
+    // 1) Build a color palette
+    // ---------------------------
+    std::map<std::string, uint16_t> color_map;
+    uint16_t current_color_index = 1;
+    std::vector<uchar4> indexToColor;
+
+    size_t totalVoxelCount = (size_t)v_info.gridsize.x
+                           * (size_t)v_info.gridsize.y
+                           * (size_t)v_info.gridsize.z;
+    for (size_t idx = 0; idx < totalVoxelCount; idx++){
+        size_t int_location = idx / 32;
+        unsigned bit_pos = 31 - (idx % 32);
+        bool filled = ((vtable[int_location] >> bit_pos) & 1u) != 0;
+        if (!filled) continue;
+
+        uchar4 c = color_table[idx];
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d,%d,%d,%d", c.x, c.y, c.z, c.w);
+        std::string color_key(buf);
+
+        auto it = color_map.find(color_key);
+        if (it == color_map.end()){
+            color_map[color_key] = current_color_index++;
+        }
+    }
+
+    uint32_t colorCount = (uint32_t)color_map.size();
+    indexToColor.resize(colorCount+1); // index 0 unused
+    for (auto &kv : color_map){
+        const std::string &key = kv.first;
+        uint16_t idx_ = kv.second;
+        int r,g,b,a;
+        sscanf(key.c_str(), "%d,%d,%d,%d", &r,&g,&b,&a);
+        indexToColor[idx_] = make_uchar4((uint8_t)r,(uint8_t)g,(uint8_t)b,(uint8_t)a);
+    }
+
+    // chunk stuff
+    uint16_t CHUNK_SIZE = 32;
+    uint16_t sizeX = (uint16_t)v_info.gridsize.x;
+    uint16_t sizeY = (uint16_t)v_info.gridsize.y;
+    uint16_t sizeZ = (uint16_t)v_info.gridsize.z;
+
+    auto divup = [](uint16_t v, uint16_t d){
+        return (uint16_t)((v + d - 1)/d);
+    };
+
+    uint16_t chunkCountX = divup(sizeX, CHUNK_SIZE);
+    uint16_t chunkCountY = divup(sizeY, CHUNK_SIZE);
+    uint16_t chunkCountZ = divup(sizeZ, CHUNK_SIZE);
+
+    uint32_t totalChunks = (uint32_t)chunkCountX * chunkCountY * chunkCountZ;
+
+    std::string filename_output = base_filename + "_"
+                                + std::to_string(sizeX) + ".vxch";
+    std::ofstream out(filename_output, std::ios::binary);
+    if (!out.is_open()){
+        std::cerr << "[Error] Could not open " << filename_output << " for writing.\n";
+        return;
+    }
+
+    // Write header
+    out.write("VXCH", 4);
+    write_u32(out, 1); // version
+
+    write_u16(out, CHUNK_SIZE);
+    write_u16(out, sizeX);
+    write_u16(out, sizeY);
+    write_u16(out, sizeZ);
+    write_u16(out, chunkCountX);
+    write_u16(out, chunkCountY);
+    write_u16(out, chunkCountZ);
+
+    write_u32(out, colorCount);
+    for (uint32_t i = 1; i <= colorCount; i++){
+        uchar4 c = indexToColor[i];
+        write_u8(out, c.x);
+        write_u8(out, c.y);
+        write_u8(out, c.z);
+        write_u8(out, c.w);
+    }
+
+    struct ChunkRecord {
+        uint64_t offset;
+        uint32_t compressedSize;
+        uint32_t uncompressedSize;
+        uint16_t chunkType;
+        uint16_t reserved;
+    };
+
+    std::vector<ChunkRecord> chunkTable(totalChunks);
+    std::streampos chunkTablePos = out.tellp();
+    size_t chunkTableBytes = totalChunks*sizeof(ChunkRecord);
+    {
+        std::vector<char> dummy(chunkTableBytes, 0);
+        out.write(dummy.data(), dummy.size());
+    }
+
+    auto getVoxel = [&](uint32_t gx, uint32_t gy, uint32_t gz)-> uint16_t {
+        size_t linearIdx = gx + gy*sizeX + gz*(sizeX*sizeY);
+        size_t int_location = linearIdx/32;
+        unsigned bit_pos = 31 - (linearIdx%32);
+        bool filled = ((vtable[int_location] >> bit_pos) & 1u)!=0;
+        if(!filled) return 0;
+        uchar4 c = color_table[linearIdx];
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d,%d,%d,%d", c.x,c.y,c.z,c.w);
+        std::string color_key(buf);
+        auto it= color_map.find(color_key);
+        if(it==color_map.end()) return 0;
+        return it->second;
+    };
+
+    uint32_t chunkIndex=0;
+    for(uint16_t cz=0; cz<chunkCountZ; cz++){
+        for(uint16_t cy=0; cy<chunkCountY; cy++){
+            for(uint16_t cx=0; cx<chunkCountX; cx++){
+                ChunkRecord &rec = chunkTable[chunkIndex];
+                rec.offset=0; rec.compressedSize=0; rec.uncompressedSize=0;
+                rec.chunkType=0; rec.reserved=0;
+
+                uint32_t x0 = cx*CHUNK_SIZE;
+                uint32_t y0 = cy*CHUNK_SIZE;
+                uint32_t z0 = cz*CHUNK_SIZE;
+                uint32_t xCount = std::min<uint32_t>(CHUNK_SIZE, sizeX - x0);
+                uint32_t yCount = std::min<uint32_t>(CHUNK_SIZE, sizeY - y0);
+                uint32_t zCount = std::min<uint32_t>(CHUNK_SIZE, sizeZ - z0);
+
+                if(xCount==0||yCount==0||zCount==0){
+                    chunkIndex++;
+                    continue;
+                }
+
+                size_t voxelsInChunk = (size_t)xCount*yCount*zCount;
+                bool anyVoxel=false; bool allSame=true;
+                uint16_t firstNonZeroIndex=0;
+
+                std::vector<uint16_t> localColors(voxelsInChunk,0);
+                for(uint32_t zz=0; zz<zCount; zz++){
+                    for(uint32_t yy=0; yy<yCount; yy++){
+                        for(uint32_t xx=0; xx<xCount; xx++){
+                            size_t loc = xx + yy*xCount + zz*(xCount*yCount);
+                            uint16_t ci = getVoxel(x0+xx, y0+yy, z0+zz);
+                            localColors[loc]=ci;
+                            if(ci!=0){
+                                if(!anyVoxel){
+                                    anyVoxel=true; firstNonZeroIndex=ci;
+                                } else {
+                                    if(ci!=firstNonZeroIndex) allSame=false;
+                                }
+                            }
+                        }
+                    }
+                }
+                if(!anyVoxel){
+                    rec.chunkType=0;
+                    chunkIndex++;
+                    continue;
+                }
+                if(allSame){
+                    rec.chunkType=1;
+                } else {
+                    rec.chunkType=2;
+                }
+
+                std::vector<char> uncompressed;
+                if(rec.chunkType==1){
+                    uncompressed.resize(2);
+                    memcpy(uncompressed.data(), &firstNonZeroIndex,2);
+                } else {
+                    size_t totalCells = xCount*yCount*zCount;
+                    size_t bitmaskBytes = (totalCells+7)/8;
+                    size_t occupiedCount=0;
+                    for(size_t i=0; i<totalCells; i++){
+                        if(localColors[i]!=0) occupiedCount++;
+                    }
+                    uncompressed.resize(bitmaskBytes + occupiedCount*2,0);
+                    uint8_t *bitmask = reinterpret_cast<uint8_t*>(uncompressed.data());
+                    for(size_t i=0; i<totalCells; i++){
+                        if(localColors[i]!=0){
+                            size_t bytePos = i/8;
+                            size_t bitPos = i%8;
+                            bitmask[bytePos] |= (1<<bitPos);
+                        }
+                    }
+                    char *colorData = uncompressed.data()+bitmaskBytes;
+                    size_t colorPos=0;
+                    for(size_t i=0; i<totalCells; i++){
+                        if(localColors[i]!=0){
+                            uint16_t ci= localColors[i];
+                            memcpy(colorData+colorPos, &ci,2);
+                            colorPos+=2;
+                        }
+                    }
+                }
+                std::vector<char> compressed = compress_chunk_data(
+                    uncompressed.data(), (int)uncompressed.size());
+
+                rec.uncompressedSize = (uint32_t)uncompressed.size();
+                rec.compressedSize   = (uint32_t)compressed.size();
+                std::streampos here = out.tellp();
+                rec.offset=(uint64_t)here;
+                if(!compressed.empty()){
+                    out.write(compressed.data(), compressed.size());
+                }
+                chunkIndex++;
+            }
+        }
+    }
+
+    std::streampos endPos = out.tellp();
+    out.seekp(chunkTablePos);
+    for(auto &rec : chunkTable){
+        out.write(reinterpret_cast<const char*>(&rec.offset), sizeof(uint64_t));
+        write_u32(out, rec.compressedSize);
+        write_u32(out, rec.uncompressedSize);
+        write_u16(out, rec.chunkType);
+        write_u16(out, rec.reserved);
+    }
+    out.seekp(endPos);
+    out.close();
+
+#ifndef SILENT
+PRINT_DEBUG("[I/O] Wrote chunked voxel file: %s\n", filename_output.c_str());
+PRINT_DEBUG("      Dimensions= (%d x %d x %d)\n", sizeX, sizeY, sizeZ);
+PRINT_DEBUG("      Chunks= (%d x %d x %d) => %d\n", chunkCountX, chunkCountY, chunkCountZ, totalChunks);
+PRINT_DEBUG("      Unique colors= %d\n", colorCount);
+#endif
+}
+

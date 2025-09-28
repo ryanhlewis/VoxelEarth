@@ -1,3 +1,5 @@
+#include "debug.h"
+
 #include "voxelize.cuh"
 
 // CUDA Global Memory variables
@@ -260,7 +262,7 @@ void voxelize(const voxinfo& v, float* triangle_data, float* uv_data, unsigned i
     checkCudaErrors(cudaEventRecord(stop_vox, 0));
     checkCudaErrors(cudaEventSynchronize(stop_vox));
     checkCudaErrors(cudaEventElapsedTime(&elapsedTime, start_vox, stop_vox));
-    printf("[Perf] Voxelization GPU time: %.1f ms\n", elapsedTime);
+    PRINT_DEBUG("[Perf] Voxelization GPU time: %.1f ms\n", elapsedTime);
 
     // SANITY CHECKS
 #ifdef _DEBUG
@@ -268,9 +270,9 @@ void voxelize(const voxinfo& v, float* triangle_data, float* uv_data, unsigned i
     checkCudaErrors(cudaMemcpyFromSymbol((void*)&(debug_n_triangles), debug_d_n_triangles, sizeof(debug_d_n_triangles), 0, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpyFromSymbol((void*)&(debug_n_voxels_marked), debug_d_n_voxels_marked, sizeof(debug_d_n_voxels_marked), 0, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpyFromSymbol((void*)&(debug_n_voxels_tested), debug_d_n_voxels_tested, sizeof(debug_d_n_voxels_tested), 0, cudaMemcpyDeviceToHost));
-    printf("[Debug] Processed %llu triangles on the GPU \n", debug_n_triangles);
-    printf("[Debug] Tested %llu voxels for overlap on GPU \n", debug_n_voxels_tested);
-    printf("[Debug] Marked %llu voxels as filled (includes duplicates!) \n", debug_n_voxels_marked);
+    PRINT_DEBUG("[Debug] Processed %llu triangles on the GPU \n", debug_n_triangles);
+    PRINT_DEBUG("[Debug] Tested %llu voxels for overlap on GPU \n", debug_n_voxels_tested);
+    PRINT_DEBUG("[Debug] Marked %llu voxels as filled (includes duplicates!) \n", debug_n_voxels_marked);
 #endif
 
     // Destroy timers

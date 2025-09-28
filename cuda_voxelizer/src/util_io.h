@@ -22,3 +22,4 @@ void write_gltf(const unsigned int* vtable, const uchar4* color_table, const vox
 void write_gltf_with_draco(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename);
 void write_gltf_pointcloud(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename);
 void write_indexed_json(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename);
+void write_indexed_binary(const unsigned int* vtable, const uchar4* color_table, const voxinfo v_info, const std::string base_filename);

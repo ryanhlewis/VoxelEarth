@@ -1,6 +1,7 @@
 #pragma once
 // This file contains various utility functions that are used throughout the program and didn't really belong in their own header
 
+#include "debug.h"
 #include <stdint.h>
 #include "TriMesh.h"
 #include "cuda.h"
@@ -27,8 +28,8 @@ __host__ __device__ inline bool checkVoxel(size_t x, size_t y, size_t z, const u
 	size_t int_location = location / size_t(32);
 	/*size_t max_index = (gridsize*gridsize*gridsize) / __int64(32);
 	if (int_location >= max_index){
-	fprintf(stdout, "Requested index too big: %llu \n", int_location);
-	fprintf(stdout, "X %llu Y %llu Z %llu \n", int_location);
+	PRINT_DEBUG(stdout, "Requested index too big: %llu \n", int_location);
+	PRINT_DEBUG(stdout, "X %llu Y %llu Z %llu \n", int_location);
 	}*/
 	unsigned int bit_pos = size_t(31) - (location % size_t(32)); // we count bit positions RtL, but array indices LtR
 	if ((vtable[int_location]) & (1 << bit_pos)){
@@ -61,10 +62,10 @@ struct voxinfo {
 	}
 
 	void print() {
-		fprintf(stdout, "[Voxelization] Bounding Box: (%f,%f,%f)-(%f,%f,%f) \n", bbox.min.x, bbox.min.y, bbox.min.z, bbox.max.x, bbox.max.y, bbox.max.z);
-		fprintf(stdout, "[Voxelization] Grid size: %i %i %i \n", gridsize.x, gridsize.y, gridsize.z);
-		fprintf(stdout, "[Voxelization] Triangles: %zu \n", n_triangles);
-		fprintf(stdout, "[Voxelization] Unit length: x: %f y: %f z: %f\n", unit.x, unit.y, unit.z);
+		PRINT_DEBUG("[Voxelization] Bounding Box: (%f,%f,%f)-(%f,%f,%f) \n", bbox.min.x, bbox.min.y, bbox.min.z, bbox.max.x, bbox.max.y, bbox.max.z);
+		PRINT_DEBUG("[Voxelization] Grid size: %i %i %i \n", gridsize.x, gridsize.y, gridsize.z);
+		PRINT_DEBUG("[Voxelization] Triangles: %zu \n", n_triangles);
+		PRINT_DEBUG("[Voxelization] Unit length: x: %f y: %f z: %f\n", unit.x, unit.y, unit.z);
 	}
 };
 
