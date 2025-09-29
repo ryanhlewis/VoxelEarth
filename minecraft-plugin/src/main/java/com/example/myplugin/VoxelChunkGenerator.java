@@ -89,6 +89,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private static final String SESSION_DIR = "./session";
     private static final long CLEANUP_INTERVAL = TimeUnit.HOURS.toMillis(1); // 1 hour
 
+    // Prefer FAWE when available; fall back to BlockChanger automatically.
+    private final boolean faweAvailable = detectFawe();
+
     public VoxelChunkGenerator() {
         System.out.println("[DEBUG] VoxelChunkGenerator initialized");
         System.out.println("[DEBUG] LAT_ORIGIN: " + LAT_ORIGIN + ", LNG_ORIGIN: " + LNG_ORIGIN);
@@ -99,6 +102,23 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         initializeSessionDirectory();
         scheduleSessionCleanup();
         loadMaterialColors();
+    }
+
+    private boolean detectFawe() {
+        try {
+            // Make sure plugin is present & enabled
+            org.bukkit.plugin.Plugin p = org.bukkit.Bukkit.getPluginManager().getPlugin("FastAsyncWorldEdit");
+            if (p == null || !p.isEnabled()) return false;
+            // Verify critical WorldEdit classes exist at runtime
+            Class.forName("com.sk89q.worldedit.WorldEdit");
+            Class.forName("com.sk89q.worldedit.bukkit.BukkitAdapter");
+            Class.forName("com.sk89q.worldedit.math.BlockVector3");
+            Class.forName("com.sk89q.worldedit.util.SideEffectSet");
+            Class.forName("com.sk89q.worldedit.world.World");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private void initializeSessionDirectory() {
@@ -830,8 +850,109 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     private void placeBlocks(World world, Map<String, Material> blockMap, int yOffset) {
-        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+        if (faweAvailable) {
+            if (placeBlocksWithFaweReflect(world, blockMap, yOffset)) return;
+            System.out.println("[DEBUG] FAWE reflect path failed or unavailable, falling back.");
+        }
 
+        // ---- Fallback: original BlockChanger path ----
+        fallbackPlaceBlocksWithBlockChanger(world, blockMap, yOffset);
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean placeBlocksWithFaweReflect(World world, Map<String, Material> blockMap, int yOffset) {
+        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+        Object editSession = null;
+        try {
+            // Classes
+            Class<?> weClazz           = Class.forName("com.sk89q.worldedit.WorldEdit");
+            Class<?> bukkitAdapterCls  = Class.forName("com.sk89q.worldedit.bukkit.BukkitAdapter");
+            Class<?> sideEffectSetCls  = Class.forName("com.sk89q.worldedit.util.SideEffectSet");
+            Class<?> blockVector3Cls   = Class.forName("com.sk89q.worldedit.math.BlockVector3");
+            Class<?> editSessionCls    = Class.forName("com.sk89q.worldedit.EditSession");
+            Class<?> weWorldIface      = Class.forName("com.sk89q.worldedit.world.World");
+            Class<?> blockStateHolder  = Class.forName("com.sk89q.worldedit.world.block.BlockStateHolder");
+
+            // WorldEdit.getInstance()
+            Object we = weClazz.getMethod("getInstance").invoke(null);
+
+            // we.newEditSessionBuilder()
+            Object builder = weClazz.getMethod("newEditSessionBuilder").invoke(we);
+
+            // adapt World -> com.sk89q.worldedit.world.World
+            Object weWorld = bukkitAdapterCls
+                    .getMethod("adapt", org.bukkit.World.class)
+                    .invoke(null, world);
+
+            // builder.world(World)  <-- must use the DECLARED interface type, not BukkitWorld
+            builder.getClass().getMethod("world", weWorldIface).invoke(builder, weWorld);
+
+            // editSession = builder.build()
+            editSession = builder.getClass().getMethod("build").invoke(builder);
+
+            // Disable side-effects (mirrors physics=false). Some builds might not have this; try/catch.
+            try {
+                Object noneSE = sideEffectSetCls.getMethod("none").invoke(null);
+                editSessionCls.getMethod("setSideEffectApplier", sideEffectSetCls)
+                              .invoke(editSession, noneSE);
+            } catch (NoSuchMethodException ignored) {
+                // Older/newer variants may differ; safe to proceed without it.
+            }
+
+            // Prepare reflection handles used in the loop
+            java.lang.reflect.Method atMethod =
+                    blockVector3Cls.getMethod("at", int.class, int.class, int.class);
+
+            // setBlock(BlockVector3, BlockStateHolder<?>)  (holder is an interface; use declared type)
+            java.lang.reflect.Method setBlock =
+                    editSessionCls.getMethod("setBlock", blockVector3Cls, blockStateHolder);
+
+            java.lang.reflect.Method adaptBlockData =
+                    bukkitAdapterCls.getMethod("adapt", org.bukkit.block.data.BlockData.class);
+
+            // Place all blocks
+            for (Map.Entry<String, Material> e : blockMap.entrySet()) {
+                String[] parts = e.getKey().split(",");
+                int x = Integer.parseInt(parts[0]);
+                int y = Integer.parseInt(parts[1]) + yOffset;
+                int z = Integer.parseInt(parts[2]);
+
+                if (y < world.getMinHeight() || y >= world.getMaxHeight()) continue;
+
+                Material mat = e.getValue();
+                if (mat == null || !mat.isBlock()) {
+                    throw new IllegalArgumentException("Invalid block material: " + mat);
+                }
+
+                Object weVec = atMethod.invoke(null, x, y, z);
+                Object weStateHolder = adaptBlockData.invoke(null, mat.createBlockData());
+                setBlock.invoke(editSession, weVec, weStateHolder);
+
+                modifiedChunks.add(world.getChunkAt(x >> 4, z >> 4));
+            }
+
+            // Close/commit
+            try {
+                editSessionCls.getMethod("close").invoke(editSession);
+            } catch (NoSuchMethodException ignore) {}
+
+            // Match your previous behavior
+            updateLighting(world, modifiedChunks);
+            return true;
+        } catch (Throwable t) {
+            // Best-effort close if the builder already created a session
+            if (editSession != null) {
+                try {
+                    editSession.getClass().getMethod("close").invoke(editSession);
+                } catch (Throwable ignore) {}
+            }
+            System.out.println("[DEBUG] placeBlocksWithFaweReflect error: " + t);
+            return false;
+        }
+    }
+
+    private void fallbackPlaceBlocksWithBlockChanger(World world, Map<String, Material> blockMap, int yOffset) {
+        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
         for (Map.Entry<String, Material> blockEntry : blockMap.entrySet()) {
             String[] parts = blockEntry.getKey().split(",");
             int originalX = Integer.parseInt(parts[0]);
@@ -842,22 +963,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             int newY = originalY + yOffset;
             int newZ = originalZ;
 
+            if (world == null) continue;
+            if (newY < world.getMinHeight() || newY >= world.getMaxHeight()) continue;
+
             int blockChunkX = newX >> 4;
             int blockChunkZ = newZ >> 4;
-
-            if (world == null) {
-                continue;
-            }
-
-            if (newY < world.getMinHeight() || newY >= world.getMaxHeight()) {
-                System.out.println("[DEBUG] Skipping block at " + newX + "," + newY + "," + newZ + " Y out of bounds.");
-                continue;
-            }
-
             Chunk chunk = world.getChunkAt(blockChunkX, blockChunkZ);
-            if (!chunk.isLoaded()) {
-                chunk.load();
-            }
+            if (!chunk.isLoaded()) chunk.load();
 
             int localX = newX & 15;
             int localZ = newZ & 15;
@@ -874,15 +986,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 false
             );
 
-            // System.out.println("[DEBUG] Set block at " + newX + "," + newY + "," + newZ + " in chunk (" + blockChunkX + "," + blockChunkZ + ") mat: " + material);
-            
-            // Get the chunk that corresponds to the block's real chunk coordinates
-            Block pos = world.getBlockAt(newX, newY, newZ);
-            Chunk realChunk = pos.getChunk();
-
-            modifiedChunks.add(realChunk);
+            // Chunk refresh tracking (matches your prior behavior)
+            modifiedChunks.add(world.getChunkAt(blockChunkX, blockChunkZ));
         }
-
         updateLighting(world, modifiedChunks);
     }
 
