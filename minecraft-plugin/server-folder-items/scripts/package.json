@@ -10,9 +10,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@gltf-transform/core": "^4.0.10",
-    "@gltf-transform/extensions": "^4.0.10",
-    "draco3dgltf": "^1.5.7",
-    "gl-matrix": "^3.4.3"
+    "draco3d": "^1.5.7"
   }
 }

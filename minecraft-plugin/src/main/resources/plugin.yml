@@ -3,7 +3,7 @@ version: 1.0
 main: com.example.voxelearth.VoxelEarth
 api-version: 1.20
 description: A custom world generator plugin
-author: YourName
+author: Ryan Hardesty Lewis
 load: STARTUP
 softdepend:
   - FastAsyncWorldEdit

@@ -1,14 +1,13 @@
 # Voxel Earth
-Voxel Earth is a pipeline aimed at converting photogrammetry data into voxel-based landscapes, creating a detailed voxel representation of the Earth. This project leverages high-resolution 3D Tiles from various sources and transforms them into interactive, voxelized worlds, primarily for use in Minecraft and VR environments.
+Voxel Earth is a pipeline aimed at converting photogrammetry data into block-based landscapes, creating a detailed voxel representation of the Earth. This project leverages 3D Tiles from various sources and transforms them into interactive, voxelized worlds, primarily for use in Minecraft.
 
 ### Project Overview
-Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel representations. It is designed to handle large datasets efficiently, converting any Cesium 3D Tile into a voxelized format and serving it back for visualization. This process extends to any 3D Tiles, including open-source photogrammetry tilesets.
+Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel representations. It is designed to handle large datasets efficiently, converting any 3D Tile into a voxelized format and serving it back for visualization. This process extends to any 3D Tiles, including open-source photogrammetry tilesets.
 
 ### Features
-- **High-Resolution Conversion**: Converts Google’s 3D Tiles into Minecraft blocks, creating detailed voxel representations of real-world locations.
+- **High-Resolution Conversion**: Converts Google’s 3D Tiles into Minecraft blocks, creating detailed block representations of real-world locations.
 - **Multi-Resolution Viewing**: Users can adjust the voxel count to view landmarks at different levels of detail.
-- **Interactive Visualization**: Compatible with Minecraft and online maps, allowing users to explore and interact with voxelized environments.
-- **Scalability**: Efficiently handles large datasets, reducing the time and effort needed to create detailed virtual worlds.
+- **Interactive Visualization**: Compatible with Minecraft and web, allowing users to explore and interact with voxelized environments.
 
 ### Usage
 
@@ -72,12 +71,55 @@ Note coords are in the format "lon lat" with no string quotes, such as -122.4194
 
 #### Minecraft
 We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. 
-The plugin is available inside `minecraft-plugin` and can be installed by copying the jar file to your Minecraft server's `plugins` directory. 
+The plugin is available but needs some weird setup with WSL2-Ubuntu since it uses our GPU Voxelizer, Python, and NodeJS. **Only for NVIDIA GPUs.** 
+
+Install Ubuntu from the Microsoft Store and inside of it, paste:
+
 ```bash
-cp minecraft-plugin/VoxelEarth.jar /path/to/minecraft/server/plugins/
+# Install Java and Maven
+sudo apt update
+sudo apt install -y openjdk-11-jdk maven python3 python3-pip nodejs npm
+
+# Create server
+mkdir -p ~/paper-server
+cd ~/paper-server
+wget https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar -O paper.jar
+mkdir -p plugins
+wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/IntellectualSites/FastAsyncWorldEdit/releases/download/2.12.3/FastAsyncWorldEdit-Bukkit-2.12.3.jar
+echo "eula=true" > eula.txt
+git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
+cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
+chmod 777 cuda_voxelizer
+cd scripts
+npm install
+cd ..
 ```
+Now, the server can run easily using:
+```
+java -Xms512M -Xmx1024M -jar paper.jar nogui
+```
+
 *NOTE: This plugin is still in development and may not work as expected.
 Do NOT use without making a backup of your server. Make an empty server to try it out!*
+
+Inside your server with the Voxel Earth plugin, there are five commands so far:
+```yml
+  visit:
+    description: Teleport to a city or location using geocoding.
+    usage: /visit <location>
+  visitradius:
+    description: Set how many tiles /visit loads around the target
+    usage: /visitradius <tiles>
+  moveradius:
+    description: Set how many tiles movement-triggered loads will fetch
+    usage: /moveradius <tiles>
+  movethreshold:
+    description: Set the movement distance threshold (in blocks) for triggering loads
+    usage: /movethreshold <blocks>
+  moveload:
+    description: Toggle movement-based loading for yourself
+    usage: /moveload <on|off|toggle|status>
+```
 
 ### Roadmap
 
@@ -89,7 +131,7 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ✔ ] **Rotation Fixes**: Convert 3D Tiles from ECEF to ENU to properly orient the object before voxelizing and have "flat voxels" instead of diagonal (credit to Google Earth team for this advice).
 
-[ㅤ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
+[ ✔ ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
 
 ### Developing
 **CPU Voxelization:**\
@@ -189,65 +231,43 @@ If there's any problems with the voxelization that need to be fixed, the followi
    [**TriMesh_io.cc**](trimesh2/libsrc/TriMesh_io.cc): Our ad-hoc implementation of importing GLTF files and extracting their textures into the voxelizer. Any issues with the GLTF format or importing will be found here.
 
 #### Minecraft
-To develop our Minecraft plugin, first we'll set up an example Spigot server and plugin.
+To develop or run our Minecraft plugin, note you MUST be in WSL2-Ubuntu, and run the following:
 ```bash
 # Install Java and Maven
 sudo apt update
-sudo apt install openjdk-11-jdk maven -y
+sudo apt install -y openjdk-11-jdk maven python3 python3-pip nodejs npm
 
 # Create server
-mkdir ~/spigot-server
-cd ~/spigot-server
-wget https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar
-java -jar BuildTools.jar --rev 1.20.5
-mkdir -p ~/spigot-server/plugins
-java -Xms512M -Xmx1024M -jar spigot-1.20.5.jar nogui
+mkdir -p ~/paper-server
+cd ~/paper-server
+wget https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar -O paper.jar
+mkdir -p plugins
+wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/IntellectualSites/FastAsyncWorldEdit/releases/download/2.12.3/FastAsyncWorldEdit-Bukkit-2.12.3.jar
 echo "eula=true" > eula.txt
-```
-
-Finally, copy over the voxelization files. In future versions, this should be inside Java plugin, 
-but for right now it's easier to develop via bindings to our Python and NodeJS code.
-```bash
-cd ~/voxelearth/minecraft-plugin/
-cp -r ./server-folder-items/* ~/spigot-server/
-chmod 777 ~/spigot-server/cuda_voxelizer
-cd ~/spigot-server/scripts/
+git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
+cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
+chmod 777 cuda_voxelizer
+cd scripts
 npm install
+cd ..
 ```
 
-Now, to develop the plugin, you can edit the files in `~/voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
+Now, to develop the plugin, you can edit the files in `voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
 ```bash
 cd ~/voxelearth/minecraft-plugin/
 mvn clean package
-cp target/myplugin-1.0-SNAPSHOT.jar ~/spigot-server/plugins/
+cp target/myplugin-1.0-SNAPSHOT.jar ~/paper-server/plugins/
 ```
 and keep starting or restarting the server with another terminal:
 ```bash
-cd ~/spigot-server
-java -Xms512M -Xmx1024M -jar spigot-1.20.5.jar nogui
+cd ~/paper-server
+java -Xms512M -Xmx1024M -jar paper.jar nogui
 ```
 
 If there's any problems with the Minecraft plugin, the main file that should be edited is:
    
    [**VoxelChunkGenerator.java**](minecraft-plugin/src/main/java/com/example/VoxelChunkGenerator.jav): This is the main file that handles mapping the player's location to a latitude and longitude, then loading the voxelized GLB into the Minecraft world.
    
-
-Currently, new tiles are populated when the server is booted and does not have a 'world' folder. If the "0,0" chunk is loaded, then you will see the console begin to download and convert tiles. Buggy servers will sometimes not load 0,0, if this is the case, delete the world folder and restart the server.
-
-Inside your server with the Voxel Earth plugin, there are two commands so far:
-```yml
-  regenchunks:
-    description: Regenerate chunks with new scale and offsets.
-    usage: /regenchunks <scale> <offsetX> <offsetY> <offsetZ>
-  loadjson:
-    description: Load a JSON file and apply scaling and offset.
-    usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
-```
-RegenChunks will use the initial tileset from tiles0_0 folder and spawn in the tiles again. It does not fetch new tiles. That is in future work.
-
-LoadJSON will use a relative JSON file location to the server directory and spawn it in. This is primarily for debugging.
-
-
 ### Included Libraries
 This project includes modified versions of the following libraries:
 
@@ -259,8 +279,8 @@ This project includes modified versions of the following libraries:
    - **Original Repository**: [cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) + [TriMesh2](https://github.com/Forceflow/TriMesh2)
    - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer.
 
-3. **tiles3d-demo by CartoDB**
-   - **Original Repository**: [tiles3d-demo](https://github.com/CartoDB/tiles3d-demo)
+3. **google-earth-as-gltf by Omar Shehata**
+   - **Original Repository**: [google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)
    - **Modifications**: Adapted for integration with voxelization pipeline via proxy, used for front-end visualization and navigation.
 
 4. **3dtiles-dl by Lukas Lao Beyer**
@@ -278,4 +298,4 @@ Voxel Earth is licensed under the MIT License. See the LICENSE file for more det
 ### Acknowledgements
 We use Google Photorealistic 3D Tiles under fair use and load data on-demand without downloading or caching outside of development.
 
-Special thanks to Lucas Dower, ForceFlow, Cesium, Google, and the CartoDB team for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.
+Special thanks to Lucas Dower, ForceFlow, Cesium, Google, and Omar Shehata for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.
