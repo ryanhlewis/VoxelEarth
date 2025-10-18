@@ -33,6 +33,10 @@ public class VoxelEarth extends JavaPlugin {
     @Override
     public void onEnable() {
         getLogger().info("VoxelEarth has been enabled");
+        // Quiet logs in release builds
+        if (!Debug.isDebug()) {
+            getLogger().setLevel(java.util.logging.Level.WARNING);
+        }
         
         // Register the player movement listener
         movementListener = new PlayerMovementListener(this); // NEW
@@ -251,12 +255,16 @@ public class VoxelEarth extends JavaPlugin {
             // Geocode the location asynchronously
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
+                    // 0% – submitted
+                    getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 0, "Starting visit…");
                     double[] latLng = geocodeLocation(location);
                     if (latLng == null) {
                         sender.sendMessage("Failed to find location: " + location);
+                        getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), -1, "Geocoding failed");
                         return;
                     } else {
                         sender.sendMessage("Found location: " + latLng[0] + ", " + latLng[1]);
+                        getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 10, "Geocoded " + location);
 
                     }
 
@@ -346,6 +354,8 @@ private void teleportAndLoadChunk(Player player, World world, int x, int z, int 
                 player.teleport(location);
                 player.sendMessage("Welcome to your destination!");
                 getLogger().info("Teleported player to: " + blockLocation[0] + ", " + blockLocation[1] + ", " + blockLocation[2]);
+                // 100% – done
+                getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
             });
         });
     } else {
@@ -355,6 +365,7 @@ private void teleportAndLoadChunk(Player player, World world, int x, int z, int 
         player.teleport(location);
         player.sendMessage("Welcome to your destination!");
         getLogger().info("Teleported player to: " + playerX + ", " + playerZ);
+        getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
     }
 }
 

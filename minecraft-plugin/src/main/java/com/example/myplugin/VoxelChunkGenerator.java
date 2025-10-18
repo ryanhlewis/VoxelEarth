@@ -34,6 +34,12 @@ import org.bukkit.block.Block;
 import org.bukkit.inventory.ItemStack;
 
 import org.bukkit.Material;
+import org.bukkit.entity.Player;
+import org.bukkit.ChatColor;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.ScoreboardManager;
 
 // player
 import java.util.UUID;
@@ -53,13 +59,27 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private Map<UUID, Integer> playerYOffsets = new ConcurrentHashMap<>();
     private Map<UUID, Integer> playerZOffsets = new ConcurrentHashMap<>();
 
+    // Progress tracking (per player)
+    private final Map<UUID, Integer> lastPct = new ConcurrentHashMap<>();
+    private final Map<UUID, String> lastStage = new ConcurrentHashMap<>();
+    // Scoreboard HUD state
+    private final Map<UUID, Scoreboard> boards = new ConcurrentHashMap<>();
+    private final Map<UUID, Objective>  objectives = new ConcurrentHashMap<>();
+    private final Map<UUID, String>     prevBarEntry = new ConcurrentHashMap<>();
+    private final Map<UUID, String>     prevStageEntry = new ConcurrentHashMap<>();
+    private final Map<UUID, Scoreboard> previousBoards = new ConcurrentHashMap<>();
+    private static final String SCOREBOARD_TITLE =
+            ChatColor.AQUA + "Voxel Earth" + ChatColor.DARK_GRAY + " — " + ChatColor.WHITE + "© Google Earth";
+    private static final int BAR_WIDTH = 20;
+    private static final int MAX_STAGE_LEN = 26; // keep lines tidy
+
     // VISIT tile radius (for /visit)
-    private volatile int visitTileRadius = 50;   // default; was 50 in earlier example
+    private volatile int visitTileRadius = 100;   // default; was 50 in earlier example
     public void setVisitTileRadius(int tiles) { this.visitTileRadius = Math.max(1, tiles); }
     public int getVisitTileRadius() { return visitTileRadius; }
 
     // MOVEMENT tile radius (for PlayerMovementListener-triggered loads)
-    private volatile int moveTileRadius = 25;    // default; previously "single tile loading" ~25
+    private volatile int moveTileRadius = 50;    // default; previously "single tile loading" ~25
     public void setMoveTileRadius(int tiles) { this.moveTileRadius = Math.max(1, tiles); }
     public int getMoveTileRadius() { return moveTileRadius; }
 
@@ -69,6 +89,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         playerXOffsets.remove(playerId);
         playerYOffsets.remove(playerId);
         playerZOffsets.remove(playerId);
+        lastPct.remove(playerId);
+        lastStage.remove(playerId);
+        // clear any existing HUD
+        hideProgressBoard(playerId);
     }
 
     // origin ecef
@@ -102,6 +126,115 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         initializeSessionDirectory();
         scheduleSessionCleanup();
         loadMaterialColors();
+    }
+
+    /** Update the per-player scoreboard HUD. pct=-1 marks an error. */
+    public void notifyProgress(UUID playerId, int pct, String stage) {
+        Player p = Bukkit.getPlayer(playerId);
+        if (p == null) return;
+        int prev = lastPct.getOrDefault(playerId, Integer.MIN_VALUE);
+        String prevStage = lastStage.get(playerId);
+        boolean important = (pct == 100 || pct == -1);
+        if (!important && (Math.abs(pct - prev) < 2) && java.util.Objects.equals(prevStage, stage)) return;
+        lastPct.put(playerId, pct);
+        lastStage.put(playerId, stage);
+        Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+            ensureProgressBoard(p);
+            Scoreboard board = boards.get(playerId);
+            Objective  obj   = objectives.get(playerId);
+            if (board == null || obj == null) return;
+
+            int clamped = Math.max(0, Math.min(pct < 0 ? 0 : pct, 100));
+            String barLine   = ChatColor.DARK_GRAY + "[" + ChatColor.GREEN + barBlocks(clamped) + ChatColor.GRAY + barSpaces(clamped) + ChatColor.DARK_GRAY + "] "
+                             + ChatColor.WHITE + clamped + "%";
+            String stageLine = (pct >= 0 ? ChatColor.GRAY.toString() : ChatColor.RED.toString()) + trimForScore(stage, MAX_STAGE_LEN);
+
+            // update display title
+            try { obj.setDisplayName(SCOREBOARD_TITLE); } catch (Throwable ignored) {}
+
+            // replace previous entries with new ones (stable line order)
+            String prevBar = prevBarEntry.get(playerId);
+            if (prevBar != null) board.resetScores(prevBar);
+            obj.getScore(barLine).setScore(2);
+            prevBarEntry.put(playerId, barLine);
+
+            String prevStageStr = prevStageEntry.get(playerId);
+            if (prevStageStr != null) board.resetScores(prevStageStr);
+            obj.getScore(stageLine).setScore(1);
+            prevStageEntry.put(playerId, stageLine);
+
+            // auto-hide after finish/error
+            if (pct == 100 || pct == -1) {
+                Bukkit.getScheduler().runTaskLater(
+                        Bukkit.getPluginManager().getPlugin("VoxelEarth"),
+                        () -> hideProgressBoard(playerId),
+                        60L /* 3 seconds */
+                );
+            }
+        });
+    }
+
+    // ===== Scoreboard helpers =====
+    private void ensureProgressBoard(Player p) {
+        UUID id = p.getUniqueId();
+        if (!boards.containsKey(id)) {
+            ScoreboardManager mgr = Bukkit.getScoreboardManager();
+            if (mgr == null) return;
+            Scoreboard board = mgr.getNewScoreboard();
+            Objective obj;
+            try {
+                // legacy signature that stays compatible
+                obj = board.registerNewObjective("visit", "dummy", SCOREBOARD_TITLE);
+            } catch (Throwable t) {
+                // extremely defensive: fallback without title
+                obj = board.registerNewObjective("visit", "dummy");
+                try { obj.setDisplayName(SCOREBOARD_TITLE); } catch (Throwable ignored) {}
+            }
+            obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+            boards.put(id, board);
+            objectives.put(id, obj);
+            // stash the player's previous board to restore later
+            previousBoards.putIfAbsent(id, p.getScoreboard());
+            p.setScoreboard(board);
+        }
+    }
+
+    private void hideProgressBoard(UUID id) {
+        Player p = Bukkit.getPlayer(id);
+        if (p == null) return;
+        Scoreboard board = boards.remove(id);
+        Objective obj = objectives.remove(id);
+        if (board != null && obj != null) {
+            try { obj.unregister(); } catch (Throwable ignored) {}
+        }
+        prevBarEntry.remove(id);
+        prevStageEntry.remove(id);
+        Scoreboard prev = previousBoards.remove(id);
+        if (prev != null) p.setScoreboard(prev);
+        else {
+            ScoreboardManager mgr = Bukkit.getScoreboardManager();
+            if (mgr != null) p.setScoreboard(mgr.getMainScoreboard());
+        }
+    }
+
+    private String barBlocks(int pct) {
+        int total = BAR_WIDTH;
+        int filled = (int)Math.round((pct / 100.0) * total);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < filled; i++) sb.append('#');
+        return sb.toString();
+    }
+    private String barSpaces(int pct) {
+        int total = BAR_WIDTH;
+        int filled = (int)Math.round((pct / 100.0) * total);
+        StringBuilder sb = new StringBuilder();
+        for (int i = filled; i < total; i++) sb.append('-');
+        return sb.toString();
+    }
+    private String trimForScore(String s, int max) {
+        if (s == null) return "";
+        if (s.length() <= max) return s;
+        return s.substring(0, Math.max(0, max - 1)) + "…";
     }
 
     private boolean detectFawe() {
@@ -343,6 +476,35 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         System.out.println("[DEBUG] runGpuVoxelizer completed.");
     }
 
+    // Overload with live progress (60–70%)
+    private void runGpuVoxelizer(String directory, List<String> tileFiles, UUID playerId) throws IOException, InterruptedException {
+        int total = Math.max(1, tileFiles.size());
+        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(0);
+        notifyProgress(playerId, 60, "Voxelizing " + total + " tile(s) …");
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        java.util.List<Future<?>> futures = new java.util.ArrayList<>();
+        for (String tileFileName : tileFiles) {
+            Future<?> future = executor.submit(() -> {
+                try {
+                    processVoxelizerFile(directory, tileFileName);
+                } catch (Exception e) {
+                    notifyProgress(playerId, -1, "Voxelizer failed: " + e.getMessage());
+                } finally {
+                    int finished = done.incrementAndGet();
+                    int pct = 60 + (int) Math.floor(10.0 * finished / total); // 60–70%
+                    notifyProgress(playerId, pct, "Voxelizing " + finished + "/" + total);
+                }
+            });
+            futures.add(future);
+        }
+        for (Future<?> f : futures) {
+            try { f.get(); } catch (Exception ignored) {}
+        }
+        executor.shutdown();
+        notifyProgress(playerId, 70, "Voxelization complete");
+    }
+
     private void processVoxelizerFile(String directory, String tileFileName) throws IOException, InterruptedException {
         File file = new File(directory, tileFileName);
         String baseName = file.getName();
@@ -454,6 +616,38 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
         executor.shutdown();
         System.out.println("[DEBUG] Finished loadIndexedJson.");
+    }
+
+    // Overload with live progress (72–85%)
+    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, UUID playerId) throws IOException {
+        int total = Math.max(1, tileFiles.size());
+        java.util.concurrent.atomic.AtomicInteger processed = new java.util.concurrent.atomic.AtomicInteger(0);
+        notifyProgress(playerId, 72, "Indexing voxels …");
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        java.util.List<Future<?>> futures = new java.util.ArrayList<>();
+        for (String tileFileName : tileFiles) {
+            String baseName = tileFileName.replaceFirst("\\.glb.*$", "");
+            File jsonFile = new File(directory, baseName + "_128.json");
+            if (indexedBlocks.containsKey(baseName)) continue;
+            Future<?> future = executor.submit(() -> {
+                try {
+                    processJsonFile(jsonFile, baseName, chunkX, chunkZ);
+                } catch (Exception e) {
+                    notifyProgress(playerId, -1, "Indexing failed: " + e.getMessage());
+                } finally {
+                    int now = processed.incrementAndGet();
+                    int pct = 72 + (int) Math.floor(13.0 * now / total); // 72–85%
+                    notifyProgress(playerId, pct, "Indexed " + now + "/" + total);
+                }
+            });
+            futures.add(future);
+        }
+        for (Future<?> f : futures) {
+            try { f.get(); } catch (Exception ignored) {}
+        }
+        executor.shutdown();
+        notifyProgress(playerId, 85, "Indexing complete");
     }
 
     private void processJsonFile(File jsonFile, String baseName, int chunkX, int chunkZ) throws IOException {
@@ -701,22 +895,26 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
+                notifyProgress(playerUUID, 15, "Preparing download …");
                 
                 // 🔴 THIS is the key line:
                 tileDownloader.setRadius(isVisit ? getVisitTileRadius() : getMoveTileRadius());
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
+                notifyProgress(playerUUID, 20, "Downloading tiles …");
                 List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
                 System.out.println("[DEBUG] Downloaded tile files: " + downloadedTileFiles);
 
                 if (downloadedTileFiles.isEmpty()) {
                     System.out.println("[DEBUG] No tiles downloaded.");
+                    notifyProgress(playerUUID, -1, "No tiles available for this area.");
                     callback.accept(blockLocation);
                     return;
                 }
 
                 System.out.println("[DEBUG] Running voxelizer for single tile...");
-                runGpuVoxelizer(outputDirectory, downloadedTileFiles);
+                notifyProgress(playerUUID, 55, "Preparing voxelizer …");
+                runGpuVoxelizer(outputDirectory, downloadedTileFiles, playerUUID);
 
                 Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
 
@@ -735,7 +933,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     System.out.println("[DEBUG] Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
                 }
 
-                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ);
+                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ, playerUUID);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
 
@@ -757,10 +955,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 System.out.println("[DEBUG] Starting chunk regeneration...");
                 System.out.println("[DEBUG] IndexedBlocks size: " + indexedBlocks.size());
+                notifyProgress(playerUUID, 90, "Placing blocks …");
 
                 World world = Bukkit.getWorld("world");
                 if (world == null) {
                     System.out.println("[DEBUG] World 'world' not found!");
+                    notifyProgress(playerUUID, -1, "World not found");
                     callback.accept(blockLocation);
                     return;
                 }
@@ -811,6 +1011,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                     if (!(boolean) indexMap1.get("isPlaced")) {
                         System.out.println("[DEBUG] Placing blocks for initial tile...");
+                        notifyProgress(playerUUID, 92, "Placing first tile …");
                         placeBlocks(world, blockMap1, yOffset.get());
                         indexMap1.put("isPlaced", true);
                     }
@@ -832,18 +1033,27 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !(boolean) indexMap.get("isPlaced")) {
                         Map<String, Material> blockMap = (Map<String, Material>) indexMap.get("blocks");
                         System.out.println("[DEBUG] Placing blocks for secondary tile: " + tileKey);
+                        // Avoid long filenames in HUD; keep it tidy.
+                        notifyProgress(playerUUID, 94, "Placing blocks …");
                         placeBlocks(world, blockMap, yOffset.get());
                         indexMap.put("isPlaced", true);
                     }
                 });                
 
                 System.out.println("[DEBUG] Chunk regeneration completed.");
+                if (isVisit) {
+                    notifyProgress(playerUUID, 98, "Teleporting …");
+                } else {
+                    // Movement loads shouldn't get stuck—settle on Idle.
+                    notifyProgress(playerUUID, 0, "Idle");
+                }
                 callback.accept(blockLocation);
 
             } catch (IOException | InterruptedException e) {
                 System.out.println("[DEBUG] Exception in loadChunk:");
                 e.printStackTrace();
                 int[] blockLocation = new int[]{210, 70, 0};
+                notifyProgress(playerUUID, -1, "Load failed: " + e.getMessage());
                 callback.accept(blockLocation);
             }
         });

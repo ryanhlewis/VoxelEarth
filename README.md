@@ -255,7 +255,7 @@ cd ..
 Now, to develop the plugin, you can edit the files in `voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
 ```bash
 cd ~/voxelearth/minecraft-plugin/
-mvn clean package
+mvn -Pdebug clean package
 cp target/myplugin-1.0-SNAPSHOT.jar ~/paper-server/plugins/
 ```
 and keep starting or restarting the server with another terminal:
