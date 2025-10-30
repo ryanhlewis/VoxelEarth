@@ -1,16 +1,9 @@
 package com.example.voxelearth;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.lang.reflect.Field;
-import java.net.HttpURLConnection;
-import java.net.URL;
-
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ProxiedCommandSender;
@@ -18,6 +11,15 @@ import org.bukkit.entity.Player;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.util.Locale;
 
 public class VoxelEarth extends JavaPlugin {
 
@@ -72,14 +74,54 @@ public class VoxelEarth extends JavaPlugin {
         return movementListener;
     }
 
+    private void broadcastSettingUpdate(String message, CommandSender actor, Player... excluded) {
+        Player actorPlayer = (actor instanceof Player) ? (Player) actor : null;
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (actorPlayer != null && actorPlayer.getUniqueId().equals(online.getUniqueId())) {
+                continue;
+            }
+            if (excluded != null) {
+                boolean skip = false;
+                for (Player ex : excluded) {
+                    if (ex != null && ex.getUniqueId().equals(online.getUniqueId())) {
+                        skip = true;
+                        break;
+                    }
+                }
+                if (skip) {
+                    continue;
+                }
+            }
+            online.sendMessage(message);
+        }
+    }
+
+    private void notifyMoveLoadStatus(Player target, boolean enabled, boolean stateChanged) {
+        String prefix = stateChanged ? "Your MoveLoad is now " : "Your MoveLoad is currently ";
+        target.sendMessage(prefix + (enabled ? "ON." : "OFF."));
+    }
+
+    private void notifyTargetIfDifferent(CommandSender actor, Player target, String message) {
+        if (actor instanceof Player) {
+            Player actorPlayer = (Player) actor;
+            if (actorPlayer.getUniqueId().equals(target.getUniqueId())) {
+                return;
+            }
+        }
+        target.sendMessage(message);
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
 
         // Unwrap /execute as <player> to the callee (DO NOT reassign `sender`)
-        final CommandSender realSender =
-                (sender instanceof ProxiedCommandSender pcs && pcs.getCallee() != null)
-                        ? pcs.getCallee()
-                        : sender;
+        final CommandSender realSender;
+        if (sender instanceof ProxiedCommandSender) {
+            ProxiedCommandSender proxied = (ProxiedCommandSender) sender;
+            realSender = proxied.getCallee() != null ? proxied.getCallee() : sender;
+        } else {
+            realSender = sender;
+        }
 
         if (command.getName().equalsIgnoreCase("createcustomworld")) {
             if (args.length == 1) {
@@ -166,7 +208,9 @@ public class VoxelEarth extends JavaPlugin {
                     return true;
                 }
                 getVoxelChunkGenerator().setVisitTileRadius(tiles);
-                realSender.sendMessage("Visit tile radius set to " + tiles + " tile(s).");
+                String message = "Visit tile radius set to " + tiles + " tile(s).";
+                realSender.sendMessage(message);
+                broadcastSettingUpdate(message, realSender);
                 return true;
             } catch (NumberFormatException e) {
                 realSender.sendMessage("Tiles must be an integer.");
@@ -184,7 +228,9 @@ public class VoxelEarth extends JavaPlugin {
                     return true;
                 }
                 getVoxelChunkGenerator().setMoveTileRadius(tiles);
-                realSender.sendMessage("Movement tile load radius set to " + tiles + " tile(s).");
+                String message = "Movement tile load radius set to " + tiles + " tile(s).";
+                realSender.sendMessage(message);
+                broadcastSettingUpdate(message, realSender);
                 return true;
             } catch (NumberFormatException e) {
                 realSender.sendMessage("Tiles must be an integer.");
@@ -198,7 +244,13 @@ public class VoxelEarth extends JavaPlugin {
             try {
                 double blocks = Double.parseDouble(args[0]);
                 getMovementListener().setMoveThresholdBlocks(blocks);
-                realSender.sendMessage("Movement distance threshold set to " + (int) blocks + " block(s).");
+                double updated = getMovementListener().getMoveThresholdBlocks();
+                String display = (Math.abs(updated - Math.rint(updated)) < 1e-6)
+                        ? Integer.toString((int) Math.round(updated))
+                        : String.format(Locale.US, "%.2f", updated);
+                String message = "Movement distance threshold set to " + display + " block(s).";
+                realSender.sendMessage(message);
+                broadcastSettingUpdate(message, realSender);
                 return true;
             } catch (NumberFormatException e) {
                 realSender.sendMessage("Threshold must be a number (in blocks).");
@@ -236,6 +288,126 @@ public class VoxelEarth extends JavaPlugin {
             }
             realSender.sendMessage("Usage: /moveload <on|off|toggle|status>");
             return false;
+        } else if (command.getName().equalsIgnoreCase("moveloadother")) {
+            if (args.length < 1) {
+                realSender.sendMessage("Usage: /moveloadother <player> [on|off|toggle|status]");
+                return false;
+            }
+
+            Player target = Bukkit.getPlayerExact(args[0]);
+            if (target == null) {
+                realSender.sendMessage("Player not found or not online: " + args[0]);
+                return true;
+            }
+
+            String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "toggle";
+
+            switch (action) {
+                case "on":
+                    getMovementListener().setMoveLoad(target.getUniqueId(), true);
+                    notifyMoveLoadStatus(target, true, true);
+                    realSender.sendMessage("MoveLoad for " + target.getName() + " is now ON.");
+                    return true;
+                case "off":
+                    getMovementListener().setMoveLoad(target.getUniqueId(), false);
+                    notifyMoveLoadStatus(target, false, true);
+                    realSender.sendMessage("MoveLoad for " + target.getName() + " is now OFF.");
+                    return true;
+                case "toggle": {
+                    getMovementListener().toggleMoveLoad(target.getUniqueId());
+                    boolean enabled = getMovementListener().isMoveLoadEnabled(target.getUniqueId());
+                    notifyMoveLoadStatus(target, enabled, true);
+                    realSender.sendMessage("MoveLoad for " + target.getName() + " is now " + (enabled ? "ON" : "OFF") + ".");
+                    return true;
+                }
+                case "status": {
+                    boolean status = getMovementListener().isMoveLoadEnabled(target.getUniqueId());
+                    notifyMoveLoadStatus(target, status, false);
+                    realSender.sendMessage("MoveLoad for " + target.getName() + " is currently " + (status ? "ON" : "OFF") + ".");
+                    return true;
+                }
+                default:
+                    realSender.sendMessage("Usage: /moveloadother <player> [on|off|toggle|status]");
+                    return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("visitradiusother")) {
+            if (args.length != 2) {
+                realSender.sendMessage("Usage: /visitradiusother <player> <tiles>");
+                return false;
+            }
+            Player target = Bukkit.getPlayerExact(args[0]);
+            if (target == null) {
+                realSender.sendMessage("Player not found or not online: " + args[0]);
+                return true;
+            }
+            try {
+                int tiles = Integer.parseInt(args[1]);
+                if (tiles < 1) {
+                    realSender.sendMessage("Minimum radius is 1 tile.");
+                    return true;
+                }
+                getVoxelChunkGenerator().setVisitTileRadius(tiles);
+                String message = "Visit tile radius set to " + tiles + " tile(s).";
+                realSender.sendMessage(message);
+                notifyTargetIfDifferent(realSender, target, message);
+                broadcastSettingUpdate(message, realSender, target);
+                return true;
+            } catch (NumberFormatException e) {
+                realSender.sendMessage("Tiles must be an integer.");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("moveradiusother")) {
+            if (args.length != 2) {
+                realSender.sendMessage("Usage: /moveradiusother <player> <tiles>");
+                return false;
+            }
+            Player target = Bukkit.getPlayerExact(args[0]);
+            if (target == null) {
+                realSender.sendMessage("Player not found or not online: " + args[0]);
+                return true;
+            }
+            try {
+                int tiles = Integer.parseInt(args[1]);
+                if (tiles < 1) {
+                    realSender.sendMessage("Minimum moveradius is 1 tile.");
+                    return true;
+                }
+                getVoxelChunkGenerator().setMoveTileRadius(tiles);
+                String message = "Movement tile load radius set to " + tiles + " tile(s).";
+                realSender.sendMessage(message);
+                notifyTargetIfDifferent(realSender, target, message);
+                broadcastSettingUpdate(message, realSender, target);
+                return true;
+            } catch (NumberFormatException e) {
+                realSender.sendMessage("Tiles must be an integer.");
+                return false;
+            }
+        } else if (command.getName().equalsIgnoreCase("movethresholdother")) {
+            if (args.length != 2) {
+                realSender.sendMessage("Usage: /movethresholdother <player> <blocks>");
+                return false;
+            }
+            Player target = Bukkit.getPlayerExact(args[0]);
+            if (target == null) {
+                realSender.sendMessage("Player not found or not online: " + args[0]);
+                return true;
+            }
+            try {
+                double blocks = Double.parseDouble(args[1]);
+                getMovementListener().setMoveThresholdBlocks(blocks);
+                double updated = getMovementListener().getMoveThresholdBlocks();
+                String display = (Math.abs(updated - Math.rint(updated)) < 1e-6)
+                        ? Integer.toString((int) Math.round(updated))
+                        : String.format(Locale.US, "%.2f", updated);
+                String message = "Movement distance threshold set to " + display + " block(s).";
+                realSender.sendMessage(message);
+                notifyTargetIfDifferent(realSender, target, message);
+                broadcastSettingUpdate(message, realSender, target);
+                return true;
+            } catch (NumberFormatException e) {
+                realSender.sendMessage("Threshold must be a number (in blocks).");
+                return false;
+            }
         } else if (command.getName().equalsIgnoreCase("visit")) {
             if (args.length == 0) {
                 realSender.sendMessage("Usage: /visit <location>");
@@ -357,7 +529,8 @@ public class VoxelEarth extends JavaPlugin {
         String apiKey = "AIzaSy..."; // Replace with your API key
 
         String requestUrl = apiUrl + "?address=" + location.replace(" ", "+") + "&key=" + apiKey;
-        HttpURLConnection connection = (HttpURLConnection) new URL(requestUrl).openConnection();
+    URL url = URI.create(requestUrl).toURL();
+    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));

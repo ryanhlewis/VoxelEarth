@@ -32,22 +32,43 @@ commands:
   visitradius:
     description: Set how many tiles /visit loads around the target
     usage: /visitradius <tiles>
-    permission: voxelearth.admin
+    permission: voxelearth.settings
     permission-message: You don't have permission to set the visit radius.
   moveradius:
     description: Set how many tiles movement-triggered loads will fetch
     usage: /moveradius <tiles>
-    permission: voxelearth.admin
+    permission: voxelearth.settings
     permission-message: You don't have permission to set the move radius.
   movethreshold:
     description: Set the movement distance threshold (in blocks) for triggering loads
     usage: /movethreshold <blocks>
-    permission: voxelearth.admin
+    permission: voxelearth.settings
     permission-message: You don't have permission to set the move threshold.
   moveload:
     description: Toggle movement-based loading for yourself
     usage: /moveload <on|off|toggle|status>
+    permission: voxelearth.moveload
     permission-message: You don't have permission to toggle moveload.
+  moveloadother:
+    description: Modify another player's movement-based loading preference
+    usage: /moveloadother <player> [on|off|toggle|status]
+    permission: voxelearth.moveload.other
+    permission-message: You don't have permission to change other players' moveload status.
+  visitradiusother:
+    description: Set the visit radius while notifying another player
+    usage: /visitradiusother <player> <tiles>
+    permission: voxelearth.settings.other
+    permission-message: You don't have permission to change the visit radius for others.
+  moveradiusother:
+    description: Set the movement load radius while notifying another player
+    usage: /moveradiusother <player> <tiles>
+    permission: voxelearth.settings.other
+    permission-message: You don't have permission to change the move radius for others.
+  movethresholdother:
+    description: Set the movement threshold while notifying another player
+    usage: /movethresholdother <player> <blocks>
+    permission: voxelearth.settings.other
+    permission-message: You don't have permission to change the move threshold for others.
   visitother:
     description: Teleport another player to a geocoded location
     usage: /visitother <player> <location>
@@ -66,9 +87,21 @@ permissions:
   voxelearth.visit:
     description: Allows teleporting to a location using geocoding.
     default: true
+  voxelearth.settings:
+    description: Allows adjusting visit radius and movement settings.
+    default: true
   voxelearth.admin:
     description: Allows setting visit radius and admin actions
     default: op
   voxelearth.visitother:
     description: Allows teleporting another player to a geocoded location
+    default: op
+  voxelearth.moveload:
+    description: Allows toggling personal MoveLoad status
+    default: true
+  voxelearth.moveload.other:
+    description: Allows changing MoveLoad status for other players
+    default: op
+  voxelearth.settings.other:
+    description: Allows changing visit/move settings and notifying other players
     default: op

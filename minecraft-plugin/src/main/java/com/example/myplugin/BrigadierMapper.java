@@ -84,6 +84,19 @@ public final class BrigadierMapper {
                 .executes(ctx -> { dispatchBukkit(resolveSender(ctx.getSource()), "visitradius", String.valueOf(getInteger(ctx,"tiles"))); return 1; }))
         );
 
+    dispatcher.register(
+        lit("visitradiusother")
+          .then(arg("player", StringArgumentType.string())
+          .then(arg("tiles", integer(1, 2048))
+        .executes(ctx -> {
+            CommandSender s = resolveSender(ctx.getSource());
+            dispatchBukkit(s, "visitradiusother",
+                getString(ctx, "player"),
+                String.valueOf(getInteger(ctx, "tiles")));
+            return 1;
+        })))
+    );
+
         // ===== /moveradius <tiles:int>
         dispatcher.register(
             lit("moveradius")
@@ -91,12 +104,38 @@ public final class BrigadierMapper {
                 .executes(ctx -> { dispatchBukkit(resolveSender(ctx.getSource()), "moveradius", String.valueOf(getInteger(ctx,"tiles"))); return 1; }))
         );
 
+    dispatcher.register(
+        lit("moveradiusother")
+          .then(arg("player", StringArgumentType.string())
+          .then(arg("tiles", integer(1, 2048))
+        .executes(ctx -> {
+            CommandSender s = resolveSender(ctx.getSource());
+            dispatchBukkit(s, "moveradiusother",
+                getString(ctx, "player"),
+                String.valueOf(getInteger(ctx, "tiles")));
+            return 1;
+        })))
+    );
+
         // ===== /movethreshold <blocks:double>
         dispatcher.register(
             lit("movethreshold")
               .then(arg("blocks", doubleArg(0.0))
                 .executes(ctx -> { dispatchBukkit(resolveSender(ctx.getSource()), "movethreshold", String.valueOf(DoubleArgumentType.getDouble(ctx,"blocks"))); return 1; }))
         );
+
+    dispatcher.register(
+        lit("movethresholdother")
+          .then(arg("player", StringArgumentType.string())
+          .then(arg("blocks", doubleArg(0.0))
+        .executes(ctx -> {
+            CommandSender s = resolveSender(ctx.getSource());
+            dispatchBukkit(s, "movethresholdother",
+                getString(ctx, "player"),
+                String.valueOf(DoubleArgumentType.getDouble(ctx, "blocks")));
+            return 1;
+        })))
+    );
 
         // ===== /moveload [on|off|toggle|status]
         dispatcher.register(
@@ -286,7 +325,9 @@ public final class BrigadierMapper {
         try {
             Method getBukkitSender = css.getClass().getMethod("getBukkitSender");
             Object sender = getBukkitSender.invoke(css);
-            if (sender instanceof CommandSender cs) return cs;
+            if (sender instanceof CommandSender) {
+                return (CommandSender) sender;
+            }
         } catch (Throwable ignored) { }
         try {
             Method getEntity = css.getClass().getMethod("getEntity"); // -> ServerPlayer?
@@ -294,7 +335,9 @@ public final class BrigadierMapper {
             if (nmsEntity != null) {
                 Method getBukkitEntity = nmsEntity.getClass().getMethod("getBukkitEntity");
                 Object bukkit = getBukkitEntity.invoke(nmsEntity);
-                if (bukkit instanceof CommandSender cs) return cs;
+                if (bukkit instanceof CommandSender) {
+                    return (CommandSender) bukkit;
+                }
             }
         } catch (Throwable ignored) { }
         return Bukkit.getConsoleSender();
