@@ -48,6 +48,11 @@ commands:
     description: Toggle movement-based loading for yourself
     usage: /moveload <on|off|toggle|status>
     permission-message: You don't have permission to toggle moveload.
+  visitother:
+    description: Teleport another player to a geocoded location
+    usage: /visitother <player> <location>
+    permission: voxelearth.visitother
+    permission-message: You don't have permission to use /visitother
 permissions:
   voxelearth.createcustomworld:
     description: Allows creating custom worlds with VoxelEarth.
@@ -63,4 +68,7 @@ permissions:
     default: true
   voxelearth.admin:
     description: Allows setting visit radius and admin actions
+    default: op
+  voxelearth.visitother:
+    description: Allows teleporting another player to a geocoded location
     default: op
