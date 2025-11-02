@@ -30,6 +30,10 @@ public class PlayerMovementListener implements Listener {
     // Keep track of explicit off to preserve intent across joins (optional)
     private final Set<UUID> explicitlyDisabled = ConcurrentHashMap.newKeySet();
 
+    // Gating for visit workflow
+    private final Set<UUID> hasCompletedInitialVisit = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> visitInProgress = ConcurrentHashMap.newKeySet();
+
     public PlayerMovementListener(VoxelEarth plugin) {
         this.plugin = plugin;
         plugin.getLogger().info("PlayerMovementListener has been created");
@@ -64,6 +68,30 @@ public class PlayerMovementListener implements Listener {
         setMoveLoad(playerId, !isMoveLoadEnabled(playerId));
     }
 
+    // --- Visit gating -------------------------------------------------------
+
+    public void suspendMoveLoadForVisit(UUID id) {
+        visitInProgress.add(id);
+    }
+
+    public void markVisitArrived(UUID id) {
+        visitInProgress.remove(id);
+        hasCompletedInitialVisit.add(id);
+        inFlight.computeIfAbsent(id, k -> new AtomicBoolean(false)).set(false);
+        lastLoadedLocations.remove(id);
+        lastLoadMs.remove(id);
+    }
+
+    public void cancelVisit(UUID id) {
+        visitInProgress.remove(id);
+    }
+
+    private boolean gateAllowsMoveLoad(UUID id) {
+        return isMoveLoadEnabled(id)
+                && !visitInProgress.contains(id)
+                && hasCompletedInitialVisit.contains(id);
+    }
+
     // --- Movement handling ----------------------------------------------------
 
     @EventHandler
@@ -82,8 +110,8 @@ public class PlayerMovementListener implements Listener {
             return;
         }
 
-        // Respect per-player toggles
-        if (!isMoveLoadEnabled(pid)) return;
+        // Respect visit gating and per-player toggles
+        if (!gateAllowsMoveLoad(pid)) return;
 
         // Cooldown
         long now = System.currentTimeMillis();

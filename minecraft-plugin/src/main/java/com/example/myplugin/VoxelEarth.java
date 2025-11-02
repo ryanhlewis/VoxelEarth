@@ -424,6 +424,8 @@ public class VoxelEarth extends JavaPlugin {
             final Player p = (Player) realSender;
             final VoxelChunkGenerator gen = getVoxelChunkGenerator();
 
+            getMovementListener().suspendMoveLoadForVisit(p.getUniqueId());
+
             // Geocode asynchronously
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
@@ -432,6 +434,7 @@ public class VoxelEarth extends JavaPlugin {
                     if (latLng == null) {
                         realSender.sendMessage("Failed to find location: " + location);
                         gen.notifyProgress(p.getUniqueId(), -1, "Geocoding failed");
+                        getMovementListener().cancelVisit(p.getUniqueId());
                         return;
                     } else {
                         realSender.sendMessage("Found location: " + latLng[0] + ", " + latLng[1]);
@@ -450,6 +453,10 @@ public class VoxelEarth extends JavaPlugin {
 
                     // Teleport & load on main thread
                     Bukkit.getScheduler().runTask(this, () -> {
+                        if (!p.isOnline()) {
+                            getMovementListener().cancelVisit(p.getUniqueId());
+                            return;
+                        }
                         World world = p.getWorld();
                         teleportAndLoadChunk(p, world, cx, cz, px, pz);
                     });
@@ -457,6 +464,7 @@ public class VoxelEarth extends JavaPlugin {
                 } catch (Exception e) {
                     realSender.sendMessage("An error occurred while processing the location.");
                     e.printStackTrace();
+                    getMovementListener().cancelVisit(p.getUniqueId());
                 }
             });
 
@@ -479,6 +487,8 @@ public class VoxelEarth extends JavaPlugin {
 
             final VoxelChunkGenerator gen = getVoxelChunkGenerator();
 
+            getMovementListener().suspendMoveLoadForVisit(target.getUniqueId());
+
             // Geocode asynchronously
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
@@ -487,6 +497,7 @@ public class VoxelEarth extends JavaPlugin {
                     if (latLng == null) {
                         sender.sendMessage("Failed to find location: " + location);
                         gen.notifyProgress(target.getUniqueId(), -1, "Geocoding failed");
+                        getMovementListener().cancelVisit(target.getUniqueId());
                         return;
                     } else {
                         sender.sendMessage("Found location for " + target.getName() + ": " + latLng[0] + ", " + latLng[1]);
@@ -507,6 +518,7 @@ public class VoxelEarth extends JavaPlugin {
                     Bukkit.getScheduler().runTask(this, () -> {
                         if (!target.isOnline()) {
                             sender.sendMessage("Player went offline before teleport: " + targetName);
+                            getMovementListener().cancelVisit(target.getUniqueId());
                             return;
                         }
                         World world = target.getWorld();
@@ -516,6 +528,7 @@ public class VoxelEarth extends JavaPlugin {
                 } catch (Exception e) {
                     sender.sendMessage("An error occurred while processing the location.");
                     e.printStackTrace();
+                    getMovementListener().cancelVisit(target.getUniqueId());
                 }
             });
 
@@ -572,6 +585,7 @@ public class VoxelEarth extends JavaPlugin {
                     Location location = new Location(world, blockLocation[0], blockLocation[1], blockLocation[2]);
                     player.sendMessage("You are now at: " + blockLocation[0] + ", " + blockLocation[1] + ", " + blockLocation[2]);
                     player.teleport(location);
+                    getMovementListener().markVisitArrived(player.getUniqueId());
                     player.sendMessage("Welcome to your destination!");
                     getLogger().info("Teleported player to: " + blockLocation[0] + ", " + blockLocation[1] + ", " + blockLocation[2]);
                     getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
@@ -582,6 +596,7 @@ public class VoxelEarth extends JavaPlugin {
             Location location = new Location(world, playerX, 100, playerZ);
             player.sendMessage("Chunk preloaded. You are now at: " + playerX + ", 100, " + playerZ);
             player.teleport(location);
+            getMovementListener().markVisitArrived(player.getUniqueId());
             player.sendMessage("Welcome to your destination!");
             getLogger().info("Teleported player to: " + playerX + ", " + playerZ);
             getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
