@@ -1,15 +1,18 @@
 package com.example.voxelearth;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
-import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ProxiedCommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.block.Block;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -19,13 +22,46 @@ import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.util.EnumSet;
 import java.util.Locale;
+import java.util.Set;
 
 public class VoxelEarth extends JavaPlugin {
 
     // Hold a single instance of VoxelChunkGenerator
     private VoxelChunkGenerator voxelChunkGenerator;
     private PlayerMovementListener movementListener;
+
+    /** Number of blocks to stand above the detected ground surface. */
+    private static final int SPAWN_ABOVE_GROUND = 2;
+    private static final int MAX_SAFE_SEARCH_RADIUS = 64;
+    private static final int MAX_HEADROOM_CHECK = 2;
+
+    private static final Set<Material> UNSAFE_SURFACES = EnumSet.of(
+        Material.LAVA,
+        Material.WATER,
+        Material.FIRE,
+        Material.SOUL_FIRE,
+        Material.MAGMA_BLOCK,
+        Material.CAMPFIRE,
+        Material.SOUL_CAMPFIRE,
+        Material.CACTUS,
+        Material.SWEET_BERRY_BUSH,
+        Material.POWDER_SNOW
+    );
+
+    private static final Set<Material> UNSAFE_HEADROOM = EnumSet.of(
+        Material.LAVA,
+        Material.WATER,
+        Material.FIRE,
+        Material.SOUL_FIRE,
+        Material.CACTUS,
+        Material.POWDER_SNOW,
+        Material.COBWEB,
+        Material.MAGMA_BLOCK,
+        Material.CAMPFIRE,
+        Material.SOUL_CAMPFIRE
+    );
 
     @Override
     public void onEnable() {
@@ -109,6 +145,165 @@ public class VoxelEarth extends JavaPlugin {
             }
         }
         target.sendMessage(message);
+    }
+
+    /** Try to land relative to a freshly placed block before falling back to broader searches. */
+    private Location safeFromBlockAnchor(World world, int[] blockLocation, int aboveBlocks) {
+        if (world == null || blockLocation == null || blockLocation.length < 3) {
+            return null;
+        }
+        int ax = blockLocation[0];
+        int ay = blockLocation[1];
+        int az = blockLocation[2];
+
+        Location viaAnchor = safeAtOrAbove(world, ax, ay, az, aboveBlocks);
+        if (viaAnchor != null) {
+            return viaAnchor;
+        }
+
+        Location sameColumn = findSafeSpawnAtXZ(world, ax, az, aboveBlocks);
+        if (sameColumn != null) {
+            return sameColumn;
+        }
+
+        return findNearestSafeSpawn(world, ax, az, aboveBlocks);
+    }
+
+    /** Place the player above the indicated ground, ensuring support and headroom. */
+    private Location safeAtOrAbove(World world, int x, int groundY, int z, int aboveBlocks) {
+        if (world == null) {
+            return null;
+        }
+
+        Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+        if (!chunk.isLoaded()) {
+            chunk.load();
+        }
+
+        int minY = world.getMinHeight();
+        int maxY = world.getMaxHeight() - 1;
+        int clampedGround = Math.min(Math.max(groundY, minY), maxY - 1);
+
+        for (int y = clampedGround; y >= minY; y--) {
+            Block supportBlock = world.getBlockAt(x, y, z);
+            if (!isSafeSupport(supportBlock.getType())) {
+                continue;
+            }
+
+            int desiredFeetY = Math.min(y + Math.max(1, aboveBlocks), maxY - 1);
+            int maxCheck = Math.min(desiredFeetY + 6, maxY - 1);
+            for (int candidateFeetY = desiredFeetY; candidateFeetY <= maxCheck; candidateFeetY++) {
+                if (candidateFeetY - 1 < minY) {
+                    continue;
+                }
+                if (!isAirColumn(world, x, candidateFeetY, z, MAX_HEADROOM_CHECK)) {
+                    continue;
+                }
+                Block belowFeet = world.getBlockAt(x, candidateFeetY - 1, z);
+                if (!isSafeSupport(belowFeet.getType())) {
+                    continue;
+                }
+                return new Location(world, x + 0.5, candidateFeetY, z + 0.5);
+            }
+        }
+        return null;
+    }
+
+    /** Use the current column to find a safe landing spot. */
+    private Location findSafeSpawnAtXZ(World world, int x, int z, int aboveBlocks) {
+        if (world == null) {
+            return null;
+        }
+        int surfaceY = world.getHighestBlockYAt(x, z);
+        if (surfaceY <= world.getMinHeight()) {
+            return null;
+        }
+        return safeAtOrAbove(world, x, surfaceY, z, aboveBlocks);
+    }
+
+    /** Spiral outward to locate the nearest viable spawn column. */
+    private Location findNearestSafeSpawn(World world, int x, int z, int aboveBlocks) {
+        if (world == null) {
+            return null;
+        }
+        for (int radius = 0; radius <= MAX_SAFE_SEARCH_RADIUS; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.abs(dx) != radius && Math.abs(dz) != radius) {
+                        continue;
+                    }
+                    Location candidate = findSafeSpawnAtXZ(world, x + dx, z + dz, aboveBlocks);
+                    if (candidate != null) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+
+        Location worldSpawn = world.getSpawnLocation();
+        if (worldSpawn != null) {
+            Location fallback = findSafeSpawnAtXZ(world, worldSpawn.getBlockX(), worldSpawn.getBlockZ(), aboveBlocks);
+            if (fallback != null) {
+                return fallback;
+            }
+        }
+        return worldSpawn;
+    }
+
+    /** Ensure the two-block column above the candidate feet position is empty of hazards. */
+    private boolean isAirColumn(World world, int x, int startY, int z, int height) {
+        if (world == null) {
+            return false;
+        }
+        int maxY = world.getMaxHeight();
+        for (int i = 0; i < height; i++) {
+            int y = startY + i;
+            if (y >= maxY) {
+                return false;
+            }
+            Block block = world.getBlockAt(x, y, z);
+            Material type = block.getType();
+            if (block.isLiquid() || type.isSolid() || UNSAFE_HEADROOM.contains(type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Decide whether a block can safely support the player. */
+    private boolean isSafeSupport(Material material) {
+        if (material == null) {
+            return false;
+        }
+        if (material.isAir()) {
+            return false;
+        }
+        if (!material.isSolid()) {
+            return false;
+        }
+        return !UNSAFE_SURFACES.contains(material);
+    }
+
+    private void setPlayerSpawnSmart(Player player, Location safe) {
+        if (player == null || safe == null) {
+            return;
+        }
+        try {
+            player.setRespawnLocation(safe, true);
+        } catch (Throwable t) {
+            getLogger().log(java.util.logging.Level.FINE, "Failed to update player respawn", t);
+        }
+    }
+
+    private void setWorldSpawnSmart(World world, Location safe) {
+        if (world == null || safe == null) {
+            return;
+        }
+        try {
+            world.setSpawnLocation(safe.getBlockX(), safe.getBlockY(), safe.getBlockZ());
+        } catch (Throwable t) {
+            getLogger().log(java.util.logging.Level.FINE, "Failed to update world spawn", t);
+        }
     }
 
     @Override
@@ -576,30 +771,66 @@ public class VoxelEarth extends JavaPlugin {
     private void teleportAndLoadChunk(Player player, World world, int x, int z, int playerX, int playerZ) {
         int chunkX = x;
         int chunkZ = z;
+        VoxelChunkGenerator generator = getVoxelChunkGenerator();
 
         if (!world.isChunkLoaded(chunkX, chunkZ)) {
             System.out.println("Loading chunk: " + chunkX + ", " + chunkZ);
-            voxelChunkGenerator.loadChunk(player.getUniqueId(), chunkX, chunkZ, true, (blockLocation) -> {
+            generator.loadChunk(player.getUniqueId(), chunkX, chunkZ, true, (blockLocation) -> {
                 Bukkit.getScheduler().runTask(this, () -> {
-                    System.out.println("Block location: " + blockLocation[0] + ", " + blockLocation[1]);
-                    Location location = new Location(world, blockLocation[0], blockLocation[1], blockLocation[2]);
-                    player.sendMessage("You are now at: " + blockLocation[0] + ", " + blockLocation[1] + ", " + blockLocation[2]);
-                    player.teleport(location);
+                    Location safe = safeFromBlockAnchor(world, blockLocation, SPAWN_ABOVE_GROUND);
+                    if (safe == null) {
+                        safe = findNearestSafeSpawn(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
+                    }
+                    if (safe == null) {
+                        safe = world.getSpawnLocation();
+                    }
+                    if (safe == null) {
+                        safe = player.getLocation();
+                    }
+
+                    player.teleport(safe);
+                    player.setFallDistance(0f);
+
+                    setPlayerSpawnSmart(player, safe);
+                    setWorldSpawnSmart(world, safe);
+
                     getMovementListener().markVisitArrived(player.getUniqueId());
+                    player.sendMessage("You are now at: "
+                            + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
                     player.sendMessage("Welcome to your destination!");
-                    getLogger().info("Teleported player to: " + blockLocation[0] + ", " + blockLocation[1] + ", " + blockLocation[2]);
-                    getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
+                    getLogger().info("Teleported (loaded) to safe: "
+                            + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
+                    generator.notifyProgress(player.getUniqueId(), 100, "Arrived");
                 });
             });
         } else {
             System.out.println("Chunk already loaded: " + chunkX + ", " + chunkZ);
-            Location location = new Location(world, playerX, 100, playerZ);
-            player.sendMessage("Chunk preloaded. You are now at: " + playerX + ", 100, " + playerZ);
-            player.teleport(location);
-            getMovementListener().markVisitArrived(player.getUniqueId());
-            player.sendMessage("Welcome to your destination!");
-            getLogger().info("Teleported player to: " + playerX + ", " + playerZ);
-            getVoxelChunkGenerator().notifyProgress(player.getUniqueId(), 100, "Arrived");
+            Bukkit.getScheduler().runTask(this, () -> {
+                Location safe = findSafeSpawnAtXZ(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
+                if (safe == null) {
+                    safe = findNearestSafeSpawn(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
+                }
+                if (safe == null) {
+                    safe = world.getSpawnLocation();
+                }
+                if (safe == null) {
+                    safe = player.getLocation();
+                }
+
+                player.teleport(safe);
+                player.setFallDistance(0f);
+
+                setPlayerSpawnSmart(player, safe);
+                setWorldSpawnSmart(world, safe);
+
+                getMovementListener().markVisitArrived(player.getUniqueId());
+                player.sendMessage("You are now at: "
+                        + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
+                player.sendMessage("Welcome to your destination!");
+                getLogger().info("Teleported (preloaded) to safe: "
+                        + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
+                generator.notifyProgress(player.getUniqueId(), 100, "Arrived");
+            });
         }
     }
 
