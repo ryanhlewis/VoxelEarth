@@ -133,6 +133,11 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ✔ ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
 
+[   ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
+
+[   ] **VXCH Patch**: Overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
+
+
 ### Developing
 **CPU Voxelization:**\
 There's not really a huge need to develop for CPU voxelization, as it is mostly already worked out by Lucas Dower and his team with [ObjToSchematic](). If anything is wrong with this implementation, it's likely with our integration on their work.
