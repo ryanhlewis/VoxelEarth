@@ -135,7 +135,7 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [   ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
 
-[   ] **VXCH Patch**: Overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
+[   ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
 
 
 ### Developing
