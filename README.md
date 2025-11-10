@@ -13,61 +13,17 @@ Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel rep
 
 #### Map Viewer
 
-Please install NodeJS and Yarn before running the pipeline.
-NodeJS can be downloaded from [here](https://nodejs.org/en/download/). After installing, run the following command to install Yarn.
-```bash
-npm install --global yarn
-```
-
-To begin, clone the repository and follow the steps below to set up the pipeline. Voxel Earth supports both CPU and GPU voxelization methods, each with its own requirements.
-```bash
-git clone https://github.com/ryanhlewis/voxelearth.git
-cd voxelearth
-```
-To see your browser render Voxel Earth, just run the following command:
-```bash
-cd ObjToSchematic
-npm install
-node server.js
-   ```
-You should see several workers (voxelizers) start up. This is the proxy server for tile requests. Now, we'll set up the visualizer. In another terminal, run the following commands:
-```bash
-cd tiles3d-demo
-yarn install
-yarn start
-```
-Now, you'll see the map load in- but every GLB model is voxelized! Adjust grid size or GPU/CPU in [server.js](ObjToSchematic/server.js). Note CPU works on all platforms, GPU only on NVIDIA + Linux (or WSL2), as we have only compiled the Linux binary.
-
+Moved to [Web Client](https://github.com/voxelearth/web-client) repository.
+This will voxelize and render 3D Tilesets all in your browser without needing a GPU.
 
 #### Single Files, Custom Locations
-There are also other demos available, such as custom GPU or CPU voxelization on single files or even custom locations. We've made a script to help you get started. 
+There are also other demos available, such as custom GPU or CPU voxelization on single files or even custom locations. In older versions of the repository, you'll find ObjToSchematic (deprecated) and use it like this:
 ```bash
 cd ObjToSchematic
 node voxelize.js myfile.glb cpu # For CPU voxelization
 node voxelize.js myfile.glb # For GPU voxelization
 ```
 This will save to myfile_voxel.glb.
-
-For the custom location demo, we show how to load only the highest-resolution tiles around a custom location. Since this particular demo uses cuda_voxelizer, you'll need to run this on Linux/WSL2 with an NVIDIA GPU.
-```bash
-cd 3dtiles-dl-master
-npm install
-node server.js
-```
-Since this demo uses BlenderPy, you may need to install some additional dependencies if any errors occur in console. Use Python 3.10.6 for best compatibility with Blender.
-```bash
-pip install numpy tqdm bpy pillow
-```
-
-Note that you can use our scripts from this demo separately like:
-```bash
-# Save highest res tiles as GLB to a directory
-python -m threaded_api -k ${apiKey} -c ${coords} -r ${radius} -o ${outputDir}
-
-# Make a combined.glb of all the tiles in a directory
-python combine_glb.py -- input_directory/ input_directory/combined.glb
-```
-Note coords are in the format "lon lat" with no string quotes, such as -122.4194 37.7749.
 
 #### Minecraft
 We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. 
@@ -133,29 +89,14 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ✔ ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
 
-[   ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
+[ ‌ ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
 
-[   ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
+[ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
 
 
 ### Developing
 **CPU Voxelization:**\
-There's not really a huge need to develop for CPU voxelization, as it is mostly already worked out by Lucas Dower and his team with [ObjToSchematic](). If anything is wrong with this implementation, it's likely with our integration on their work.
-1. **Install Dependencies**: First, set up ObjToSchematic by performing the following steps.
-   ```bash
-   cd ObjToSchematic
-   npm install
-   ```
-2. **Run test voxelizer**: Use our single-file voxelizer to debug and test voxelization.
-   ```bash
-   node voxelize.js myfile.glb cpu
-   ```
-If there's any problems with the voxelization that need to be fixed, the following files are likely the culprits:
-
-[**magic.js**](ObjToSchematic/magic.js): Aptly named, this is a node-fixing script for the 3D Tiles format that properly scales, rotates, and copies all original attributes from the 3D Tile to the voxelized GLB. GLB Extension issues (Draco, Unlit), rotation, and scaling issues will be found here.
-
-[**convertToGLB.js**](ObjToSchematic/src/convertToGLB.js): This file is where we export from ObjToSchematic's voxel format into a GLB object by reconstructing each voxel. Texture or color issues and any voxelization issues will be found here.
-
+Not supported in the Minecraft plugin, but we have an implementation over at [Web Client](https://github.com/voxelearth/web-client). If anyone wants to merge CPU voxelization here, please open a pull request!
 
 **GPU Voxelization:**\
 *(Currently Linux-only / WSL2)*\
@@ -276,7 +217,7 @@ If there's any problems with the Minecraft plugin, the main file that should be 
 ### Included Libraries
 This project includes modified versions of the following libraries:
 
-1. **ObjToSchematic by Lucas Dower**
+1. **ObjToSchematic by Lucas Dower** (deprecated, removed)
    - **Original Repository**: [ObjToSchematic](https://github.com/LucasDower/ObjToSchematic)
    - **Modifications**: Enhanced voxelization pipeline to ingest GLTF files via THREE.js, serves as the CPU-based voxelizer.
 
