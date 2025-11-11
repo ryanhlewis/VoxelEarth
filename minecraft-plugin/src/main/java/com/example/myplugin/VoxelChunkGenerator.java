@@ -1299,8 +1299,16 @@ int newOffsetZZ = oldOffsetZZ * 5;
 
 // Try removing 1.00037 and 0.99999. If you must keep them, ensure they are used in both directions consistently.
 
+private static final double BLOCKS_PER_METER = 2.1;
+
+// So the inverse must be used when turning *blocks → meters* for lat/lng:
+private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER; // 0.476190476...
+private double metersPerChunk() {
+    return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
+}
+
 public double[] minecraftToLatLng(int chunkX, int chunkZ) {
-    double metersPerChunk = CHUNK_SIZE * (metersPerBlock / 2.625); // 14 meters per chunk.
+    double metersPerChunk = metersPerChunk();
 
     // Convert chunk coords to meters
     double metersZ = (chunkX * metersPerChunk + newOffsetXX);
@@ -1319,7 +1327,7 @@ public double[] minecraftToLatLng(int chunkX, int chunkZ) {
 
 public int[] latLngToMinecraft(double lat, double lng) {
     double[] meters = latLngToMeters(lat, lng);
-    double metersPerChunk = CHUNK_SIZE * (metersPerBlock / 2.625); // 14 meters per chunk.
+    double metersPerChunk = metersPerChunk();
 
     double metersZ = meters[0];
     double metersX = meters[1];
