@@ -68,12 +68,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private static final int MAX_STAGE_LEN = 26; // keep lines tidy
 
     // VISIT tile radius (for /visit)
-    private volatile int visitTileRadius = 100;   // default; was 50 in earlier example
+    private volatile int visitTileRadius = 200;   // default; was 50 in earlier example
     public void setVisitTileRadius(int tiles) { this.visitTileRadius = Math.max(1, tiles); }
     public int getVisitTileRadius() { return visitTileRadius; }
 
     // MOVEMENT tile radius (for PlayerMovementListener-triggered loads)
-    private volatile int moveTileRadius = 50;    // default; previously "single tile loading" ~25
+    private volatile int moveTileRadius = 100;    // default; previously "single tile loading" ~25
     public void setMoveTileRadius(int tiles) { this.moveTileRadius = Math.max(1, tiles); }
     public int getMoveTileRadius() { return moveTileRadius; }
 

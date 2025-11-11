@@ -232,7 +232,7 @@ This project includes modified versions of the following libraries:
 
 2. **cuda_voxelizer by ForceFlow**
    - **Original Repository**: [cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) + [TriMesh2](https://github.com/Forceflow/TriMesh2)
-   - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back tO CPU if not present.
+   - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back to CPU if not present.
 
 3. **google-earth-as-gltf by Omar Shehata**
    - **Original Repository**: [google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)

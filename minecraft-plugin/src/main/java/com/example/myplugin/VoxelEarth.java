@@ -635,6 +635,7 @@ public class VoxelEarth extends JavaPlugin {
                         realSender.sendMessage("Found location: " + latLng[0] + ", " + latLng[1]);
                         gen.notifyProgress(p.getUniqueId(), 10, "Geocoded " + location);
                     }
+                    getMovementListener().setReferenceLatLng(p.getUniqueId(), latLng[0], latLng[1]);
 
                     // Convert lat/lng
                     int[] chunkCoords = gen.latLngToMinecraft(latLng[0], latLng[1]);

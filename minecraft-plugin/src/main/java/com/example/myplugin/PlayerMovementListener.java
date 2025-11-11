@@ -16,6 +16,13 @@ public class PlayerMovementListener implements Listener {
     // Per-player last location we used to trigger a load
     private final Map<UUID, Location> lastLoadedLocations = new ConcurrentHashMap<>();
 
+    // Track a per-player "origin tile" we anchor quadrant math to
+    private final Map<UUID, Integer> originTileX = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> originTileZ = new ConcurrentHashMap<>();
+    // Remember the real-world lat/lng (sign) of the current visit destination so we
+    // can classify quadrants even if minecraftToLatLng is distorted by offsets.
+    private final Map<UUID, double[]> referenceLatLng = new ConcurrentHashMap<>();
+
     // NEW: configurable threshold in BLOCKS (distance between lastLoadedLocation and current)
     private volatile double moveThresholdBlocks = 50.0;
 
@@ -72,15 +79,20 @@ public class PlayerMovementListener implements Listener {
 
     public void suspendMoveLoadForVisit(UUID id) {
         visitInProgress.add(id);
+        resetPlayerOrigin(id);
     }
 
-    public void markVisitArrived(UUID id) {
-        visitInProgress.remove(id);
-        hasCompletedInitialVisit.add(id);
-        inFlight.computeIfAbsent(id, k -> new AtomicBoolean(false)).set(false);
-        lastLoadedLocations.remove(id);
-        lastLoadMs.remove(id);
-    }
+public void markVisitArrived(UUID id) {
+    visitInProgress.remove(id);
+    hasCompletedInitialVisit.add(id);
+    // Only reset the origin tiles; keep the quadrant anchor.
+    originTileX.remove(id);
+    originTileZ.remove(id);
+    inFlight.computeIfAbsent(id, k -> new AtomicBoolean(false)).set(false);
+    lastLoadedLocations.remove(id);
+    lastLoadMs.remove(id);
+}
+
 
     public void cancelVisit(UUID id) {
         visitInProgress.remove(id);
@@ -90,6 +102,18 @@ public class PlayerMovementListener implements Listener {
         return isMoveLoadEnabled(id)
                 && !visitInProgress.contains(id)
                 && hasCompletedInitialVisit.contains(id);
+    }
+
+    public void resetPlayerOrigin(UUID playerId) {
+        if (playerId == null) return;
+        originTileX.remove(playerId);
+        originTileZ.remove(playerId);
+        // referenceLatLng.remove(playerId);
+    }
+
+    public void setReferenceLatLng(UUID playerId, double lat, double lng) {
+        if (playerId == null) return;
+        referenceLatLng.put(playerId, new double[]{ lat, lng });
     }
 
     // --- Movement handling ----------------------------------------------------
@@ -136,16 +160,41 @@ public class PlayerMovementListener implements Listener {
         lastLoadMs.put(pid, now);
 
         // Convert player's position to chunk-ish "tile" coordinates (16 blocks = 1 chunk)
-        int tileX = to.getBlockX() >> 4;
-        int tileZ = to.getBlockZ() >> 4;
+        int absTileX = to.getBlockX() >> 4;
+        int absTileZ = to.getBlockZ() >> 4;
 
-        // Kick the async load
         VoxelChunkGenerator generator = plugin.getVoxelChunkGenerator();
 
-        // false => not a /visit (so we reuse stored origin once established)
-        generator.loadChunk(pid, tileX, tileZ, false, (blockLocation) -> {
-            // When the async work is done, allow another request
-            flag.set(false);
-        });
+        // Establish per-player origin tile the first time we see them (after visit completes)
+        int originX = originTileX.computeIfAbsent(pid, k -> absTileX);
+        int originZ = originTileZ.computeIfAbsent(pid, k -> absTileZ);
+
+        // Determine which quadrant of the globe we're in and swap axes if needed.
+        // double[] latLng = referenceLatLng.get(pid);
+        // if (latLng == null) {
+        //     latLng = generator.minecraftToLatLng(absTileX, absTileZ);
+        // }
+        double[] latLng = generator.minecraftToLatLng(absTileX, absTileZ);
+        double lat = latLng[0];
+        double lng = latLng[1];
+
+int dx = absTileX - originX;
+int dz = absTileZ - originZ;
+
+// Old, working transform (use *live* lat/lng computed above)
+if (lat >= 0 && lng < 0) {          // NW
+    int t = dx; dx = dz; dz = -t;
+} else if (lat < 0 && lng >= 0) {   // SE
+    // no-op
+} else if (lat < 0 && lng < 0) {    // SW
+    int t = dx; dx = dz; dz = -t;
+} else {                            // NE
+    // no-op
+}
+
+int tileX = originX + dx;
+int tileZ = originZ + dz;
+generator.loadChunk(pid, tileX, tileZ, false, (ignore) -> flag.set(false));
+
     }
 }
