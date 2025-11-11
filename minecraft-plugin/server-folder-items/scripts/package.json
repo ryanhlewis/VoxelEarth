@@ -1,15 +1,23 @@
 {
-  "name": "scripts",
+  "name": "new-folder",
   "version": "1.0.0",
   "description": "",
-  "main": "rotateUtils.js",
+  "main": "download_and_rotate.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "type": "module",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "draco3d": "^1.5.7"
+    "@gltf-transform/core": "^4.2.1",
+    "@gltf-transform/extensions": "^4.2.1",
+    "axios": "^1.13.2",
+    "draco3d": "^1.5.7",
+    "draco3dgltf": "^1.5.7",
+    "gl-matrix": "^3.4.4",
+    "p-queue": "^9.0.0",
+    "yargs": "^18.0.0"
   }
 }

@@ -99,7 +99,7 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
 
-[ ‌ ] **Collapse Python / NodeJS dependencies**: We have external reliance on both Python (network requests) and NodeJS (Draco decompression + rotation). Porting these to be inside the Java would be better to allow the plugin to just be a single jarfile.
+[ ‌ ] **Collapse NodeJS dependency**: We have external reliance on NodeJS (Draco decompression + rotation). Porting these to be inside the Java would be better to allow the plugin to just be a single jarfile- but NodeJS is super fast for massively parallel downloading + Draco decompression + GLB rotation! Would need to benchmark!
 
 ### Developing
 **CPU Voxelization:**\
@@ -228,11 +228,11 @@ This project includes modified versions of the following libraries:
 
 1. **ObjToSchematic by Lucas Dower** (deprecated, removed)
    - **Original Repository**: [ObjToSchematic](https://github.com/LucasDower/ObjToSchematic)
-   - **Modifications**: Enhanced voxelization pipeline to ingest GLTF files via THREE.js, serves as the CPU-based voxelizer.
+   - **Modifications**: Deprecated in favor of custom 2.5D Scan CPU voxelization. Originally enhanced voxelization pipeline to ingest GLTF files via THREE.js.
 
 2. **cuda_voxelizer by ForceFlow**
    - **Original Repository**: [cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) + [TriMesh2](https://github.com/Forceflow/TriMesh2)
-   - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer.
+   - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back tO CPU if not present.
 
 3. **google-earth-as-gltf by Omar Shehata**
    - **Original Repository**: [google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)
@@ -240,7 +240,7 @@ This project includes modified versions of the following libraries:
 
 4. **3dtiles-dl by Lukas Lao Beyer**
    - **Original Repository**: [3dtiles-dl](https://github.com/lukaslaobeyer/3dtiles-dl)
-   - **Modifications**: Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
+   - **Modifications**: Converted to NodeJS. Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
 
 All original library code is licensed under their respective licenses. See individual LICENSE files in each modified library directory for more details.
 
@@ -251,6 +251,6 @@ Contributions to Voxel Earth are welcome! Please fork the repository and submit 
 Voxel Earth is licensed under the MIT License. See the LICENSE file for more details.
 
 ### Acknowledgements
-We use Google Photorealistic 3D Tiles under fair use and load data on-demand without downloading or caching outside of development.
+We use Google Photorealistic 3D Tiles under fair use and load data on-demand without downloading or caching outside of development. Note that if you use this plugin with any tileset you do not have the license to - you are expected to follow their TOS. Specifically, you should not alter the plugin to save tiles permanently, as it currently is set up as a temporary viewer.
 
 Special thanks to Lucas Dower, ForceFlow, Cesium, Google, and Omar Shehata for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.

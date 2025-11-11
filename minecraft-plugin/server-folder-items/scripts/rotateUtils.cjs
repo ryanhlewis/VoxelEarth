@@ -3,11 +3,13 @@
  * then BAKE the final per-root rotation+scale into vertices so nodes end up
  * with identity rotation/scale (translation only).
  *
- * Steps:
- *   0) If KHR_draco_mesh_compression exists, decode to plain FLOAT accessors (requires `npm i draco3d`).
- *   1) Do the original strict flow:  M' = RS * ( T(-C) * M ).
- *   2) For each root, bake its CURRENT rotation+scale into mesh vertices/normals/tangents (+ morphs),
- *      set rotation=identity, scale=[1,1,1], and pre-multiply each direct child by RS.
+ * Programmatic API:
+ *   const { rotateGlbBuffer } = require('./rotateUtils.js');
+ *   const { buffer, positions, originUsed, scale } =
+ *     await rotateGlbBuffer(inBuf, { origin: [x,y,z] | null, scaleOn: false });
+ *
+ * CLI (unchanged behavior):
+ *   node rotateUtils.js <input.glb> <output.glb> <positions.json> [originJsonArray] [--scale] [--origin '[x,y,z]']
  *
  * Limitations:
  * - FLOAT attributes only (no sparse). Draco is auto-decoded; EXT_meshopt is not handled here.
@@ -136,15 +138,10 @@ function transformAabb(center, half, M){
 function align4(x){return (x+3)&~3;}
 
 // --- geocentric Up ---
-function geodeticUpFromECEF(p){ // p = [x,y,z] meters in ECEF
-  return norm(p);
-}
-
+function geodeticUpFromECEF(p){ return norm(p); }
 
 // -------------- small mat3 helpers for baking --------------
-function mat3FromMat4(M){
-  return [M[0],M[1],M[2],  M[4],M[5],M[6],  M[8],M[9],M[10]];
-}
+function mat3FromMat4(M){ return [M[0],M[1],M[2],  M[4],M[5],M[6],  M[8],M[9],M[10]]; }
 function mat3MulVec3(m,v){
   const x=v[0],y=v[1],z=v[2];
   return [
@@ -424,7 +421,6 @@ function planGlobalStrict(glbJson, bin, { origin=null, scaleOn=false }={}){
   const scene = json.scenes[json.scene];
   const roots = (scene.nodes || []).slice();
 
-  // center/diag
   let center, diag;
   if (Array.isArray(origin) && origin.length===3){
     center = origin.slice();
@@ -434,17 +430,15 @@ function planGlobalStrict(glbJson, bin, { origin=null, scaleOn=false }={}){
     if (!scaleOn) diag = 1;
   }
 
-  // rotation: ECEF up -> +Y
-// rotation: geodetic Up (ellipsoid normal at center) -> +Y
-let ecefUp = geodeticUpFromECEF(center);
-if (!isFinite(ecefUp[0]) || !isFinite(ecefUp[1]) || !isFinite(ecefUp[2])) ecefUp = [0,1,0];
-const q = quatFromUnitVectors(ecefUp, [0,1,0]);
+  // geodetic Up (ellipsoid normal at center) -> +Y
+  let ecefUp = geodeticUpFromECEF(center);
+  if (!isFinite(ecefUp[0]) || !isFinite(ecefUp[1]) || !isFinite(ecefUp[2])) ecefUp = [0,1,0];
+  const q = quatFromUnitVectors(ecefUp, [0,1,0]);
 
   const s = scaleOn ? (1/diag) : 1;
 
-  // matrices
-  const Tpre = composeTRS([-center[0], -center[1], -center[2]], [0,0,0,1], [1,1,1]); // child.position -= center
-  const RS   = composeTRS([0,0,0], q, [s,s,s]);                                      // rotate (and optional scale)
+  const Tpre = composeTRS([-center[0], -center[1], -center[2]], [0,0,0,1], [1,1,1]);
+  const RS   = composeTRS([0,0,0], q, [s,s,s]);
 
   return { json, roots, center, q, s, Tpre, RS };
 }
@@ -467,61 +461,7 @@ function applyStrictIntoRoots(json, roots, Tpre, RS){
   }
 }
 
-// ---------------- positions json from ORIGINAL geometry centers ----------------
-function positionsFromOriginal(glTF, bin, origin, q, s){
-  const j = glTF;
-  const nodes = j.nodes || [];
-  const meshes = j.meshes || [];
-  const world = _buildWorldMatrices(nodes);
-  const out = [];
-
-  for (let ni=0; ni<nodes.length; ni++){
-    const n = nodes[ni];
-    if (typeof n.mesh !== 'number') continue;
-    const mesh = meshes[n.mesh]; if (!mesh) continue;
-
-    // union local AABB
-    let minX= Infinity,minY= Infinity,minZ= Infinity;
-    let maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
-    for (const prim of (mesh.primitives||[])){
-      const pi = prim.attributes && prim.attributes.POSITION;
-      if (typeof pi !== 'number') continue;
-      let mm = readAccessorMinMax(j, bin, pi);
-      if (!mm) continue;
-      const mn=mm.min, mx=mm.max;
-      minX=Math.min(minX,mn[0]); minY=Math.min(minY,mn[1]); minZ=Math.min(minZ,mn[2]);
-      maxX=Math.max(maxX,mx[0]); maxY=Math.max(maxY,mx[1]); maxZ=Math.max(maxZ,mx[2]);
-    }
-    if (!isFinite(minX)) continue;
-
-    const centerLocal = [(minX+maxX)/2,(minY+maxY)/2,(minZ+maxZ)/2];
-
-    // to world (ORIGINAL, pre-bake)
-    const M = world[ni];
-    const m00=M[0], m01=M[4], m02=M[8],  tx=M[12];
-    const m10=M[1], m11=M[5], m12=M[9],  ty=M[13];
-    const m20=M[2], m21=M[6], m22=M[10], tz=M[14];
-    const cx = m00*centerLocal[0] + m01*centerLocal[1] + m02*centerLocal[2] + tx;
-    const cy = m10*centerLocal[0] + m11*centerLocal[1] + m12*centerLocal[2] + ty;
-    const cz = m20*centerLocal[0] + m21*centerLocal[1] + m22*centerLocal[2] + tz;
-
-    const rel = [cx - origin[0], cy - origin[1], cz - origin[2]];
-    const rot = rotateVecByQuat(rel, q);
-    out.push({ name: n.name || 'Unnamed Node', translation: [rot[0]*s, rot[1]*s, rot[2]*s], origin: origin.slice() });
-  }
-
-  if (out.length === 0){
-    for (const n of nodes){
-      const t = Array.isArray(n.translation) ? n.translation.slice() : [0,0,0];
-      const rel = [t[0]-origin[0], t[1]-origin[1], t[2]-origin[2]];
-      const rot = rotateVecByQuat(rel, q);
-      out.push({ name: n.name || 'Unnamed Node', translation: [rot[0]*s, rot[1]*s, rot[2]*s], origin: origin.slice() });
-    }
-  }
-
-  return out;
-}
-
+// ---------------- positions from final result ----------------
 function positionsFromFinal(glTF, roots, { origin=[0,0,0], scale=1 } = {}){
   const nodes = glTF.nodes || [];
   const out = [];
@@ -530,16 +470,13 @@ function positionsFromFinal(glTF, roots, { origin=[0,0,0], scale=1 } = {}){
     const t = Array.isArray(n.translation) ? n.translation.slice() : [0,0,0];
     out.push({
       name: n.name || `Node_${idx}`,
-      translation: t,     // already in rotated/centered/(optionally) scaled space
+      translation: t,
       origin: origin.slice()
     });
   }
-  // You can also include the single global scale if Minecraft wants it separately.
-  // Positions are already scaled by s, so this is informational.
   out._meta = { origin, scale };
   return out;
 }
-
 
 // ---------------- baking: push each root's CURRENT R*S into vertices ----------------
 function countMeshUses(json){
@@ -566,7 +503,6 @@ function bakeRotScaleIntoVerticesAfterApply(json, bin, roots){
     const r = Array.isArray(n.rotation) ? n.rotation.slice() : [0,0,0,1];
     const s = Array.isArray(n.scale) ? n.scale.slice() : [1,1,1];
 
-    // Build RS from node’s CURRENT rotation+scale (after original apply)
     const RS4 = composeTRS([0,0,0], r, s);
     const RS3 = mat3FromMat4(RS4);
 
@@ -574,7 +510,6 @@ function bakeRotScaleIntoVerticesAfterApply(json, bin, roots){
     if (!invT) throw new Error(`Non-invertible rotation/scale at node ${idx}.`);
     const normalM = mat3Transpose(invT);
 
-    // Bake into this node's mesh
     if (typeof n.mesh === 'number'){
       const mesh = (json.meshes||[])[n.mesh];
       if (!mesh) throw new Error(`Node ${idx} references missing mesh ${n.mesh}`);
@@ -635,14 +570,12 @@ function bakeRotScaleIntoVerticesAfterApply(json, bin, roots){
       }
     }
 
-    // Flatten node: translation only
     const t = Array.isArray(n.translation) ? n.translation.slice() : [0,0,0];
     delete n.matrix;
     n.translation = t;
     n.rotation    = [0,0,0,1];
     n.scale       = [1,1,1];
 
-    // Pre-multiply direct children by RS so subtree world stays identical
     if (Array.isArray(n.children)){
       for (const ci of n.children){
         const c = json.nodes[ci];
@@ -839,64 +772,61 @@ async function maybeDecodeAllDraco(glTF, bin){
   return { json: glTF, bin };
 }
 
-// ---------------- CLI ----------------
-/*
-Usage:
-  node rotateUtils.js <input.glb> <output.glb> <positions.json> [originJsonArray] [--scale] [--origin '[x,y,z]']
-Notes:
-- If your GLB uses Draco, run once:  npm i draco3d
-*/
-(async function main(){
-  const args = process.argv.slice(2);
-  if (args.length < 3){
-    console.error('Usage: node rotateUtils.js <input.glb> <output.glb> <positions.json> [originJsonArray] [--scale] [--origin \'[x,y,z]\']');
-    process.exit(1);
-  }
-  const [inPath, outPath, posPath, maybeOrigin, ...rest] = args;
-
-  let origin = null, scaleOn = false;
-
-  if (maybeOrigin && typeof maybeOrigin === 'string' && maybeOrigin.trim().startsWith('[') && maybeOrigin.trim().endsWith(']')){
-    try { origin = JSON.parse(maybeOrigin); } catch {}
-  } else if (maybeOrigin !== undefined) {
-    rest.unshift(maybeOrigin);
-  }
-
-  for (let i=0;i<rest.length;i++){
-    const a = rest[i];
-    if (!a) continue;
-    if (a === '--scale') scaleOn = true;
-    else if (a === '--origin') origin = JSON.parse(rest[++i]);
-  }
-
-  const buf = fs.readFileSync(inPath);
-  const { json: inJsonRaw, bin: inBinRaw } = parseGlb(buf);
-
-  // 0) Decode Draco if needed (so accessors have bufferViews)
+// ---------------- Programmatic API ----------------
+async function rotateGlbBuffer(inBuf, { origin=null, scaleOn=false } = {}) {
+  const { json: inJsonRaw, bin: inBinRaw } = parseGlb(inBuf);
   const { json: inJson, bin } = await maybeDecodeAllDraco(inJsonRaw, inBinRaw);
 
-  // 1) Plan using ORIGINAL (decoded) geometry
-  const { json, roots, center, q, s, Tpre, RS } =
-    planGlobalStrict(inJson, bin, { origin, scaleOn });
+  const plan = planGlobalStrict(inJson, bin, { origin, scaleOn });
+  const { json, roots, center, s, Tpre, RS } = plan;
 
-  // positions.json from ORIGINAL (pre-bake)
-//   const pos = positionsFromOriginal(inJson, bin, center, q, s);
-
-  // 2) Apply your original strict flow (known-correct result)
+  // original strict flow
   applyStrictIntoRoots(json, roots, Tpre, RS);
 
-  // 3) Bake each root’s *current* rotation+scale into vertices; flatten nodes
+  // bake RS, flatten nodes
   bakeRotScaleIntoVerticesAfterApply(json, bin, roots);
 
-const pos = positionsFromFinal(json, roots, { origin: center, scale: s });
-
-  // Output
+  const positions = positionsFromFinal(json, roots, { origin: center, scale: s });
   const outBuf = buildGlb(json, bin);
-  fs.writeFileSync(outPath, outBuf);
-  fs.writeFileSync(posPath, JSON.stringify(pos, null, 2));
 
-  console.log(`ORIGIN_TRANSLATION ${JSON.stringify(center)}`);
-  console.log(`Applied strict flow, then baked each root's rotation+scale into vertices; nodes set to translation-only.`);
-  console.log(`Rotated+BAKED GLB saved to ${outPath}`);
-  console.log(`Position data saved to ${posPath}`);
-})().catch(e=>{ console.error('Error:', e?.stack||e?.message||e); process.exit(1); });
+  return { buffer: outBuf, positions, originUsed: center, scale: s };
+}
+
+module.exports = { rotateGlbBuffer };
+
+// ---------------- CLI (still works) ----------------
+if (require.main === module) {
+  (async function main(){
+    const args = process.argv.slice(2);
+    if (args.length < 3){
+      console.error('Usage: node rotateUtils.js <input.glb> <output.glb> <positions.json> [originJsonArray] [--scale] [--origin \'[x,y,z]\']');
+      process.exit(1);
+    }
+    const [inPath, outPath, posPath, maybeOrigin, ...rest] = args;
+
+    let origin = null, scaleOn = false;
+
+    if (maybeOrigin && typeof maybeOrigin === 'string' && maybeOrigin.trim().startsWith('[') && maybeOrigin.trim().endsWith(']')){
+      try { origin = JSON.parse(maybeOrigin); } catch {}
+    } else if (maybeOrigin !== undefined) {
+      rest.unshift(maybeOrigin);
+    }
+
+    for (let i=0;i<rest.length;i++){
+      const a = rest[i];
+      if (!a) continue;
+      if (a === '--scale') scaleOn = true;
+      else if (a === '--origin') origin = JSON.parse(rest[++i]);
+    }
+
+    const inBuf = fs.readFileSync(inPath);
+    const { buffer, positions, originUsed } = await rotateGlbBuffer(inBuf, { origin, scaleOn });
+    fs.writeFileSync(outPath, buffer);
+    fs.writeFileSync(posPath, JSON.stringify(positions, null, 2));
+
+    console.log(`ORIGIN_TRANSLATION ${JSON.stringify(origin ?? originUsed)}`);
+    console.log(`Applied strict flow, then baked each root's rotation+scale into vertices; nodes set to translation-only.`);
+    console.log(`Rotated+BAKED GLB saved to ${outPath}`);
+    console.log(`Position data saved to ${posPath}`);
+  })().catch(e=>{ console.error('Error:', e?.stack||e?.message||e); process.exit(1); });
+}

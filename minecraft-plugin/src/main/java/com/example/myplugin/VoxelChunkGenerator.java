@@ -423,6 +423,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             tileDownloader.setCoordinates(LNG_ORIGIN, LAT_ORIGIN);
 
             List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
+            Map<String, double[]> tileTranslations = new HashMap<>(tileDownloader.getTileTranslations());
             System.out.println("[DEBUG] Downloaded tiles: " + downloadedTileFiles);
 
             if (downloadedTileFiles.isEmpty()) {
@@ -434,7 +435,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             runGpuVoxelizer(outputDirectory, downloadedTileFiles);
 
             System.out.println("[DEBUG] Loading indexed JSON...");
-            loadIndexedJson(new File(outputDirectory), downloadedTileFiles, chunkX, chunkZ);
+            loadIndexedJson(new File(outputDirectory), downloadedTileFiles, chunkX, chunkZ, tileTranslations);
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
@@ -500,10 +501,20 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
 
-    /** Return true if the CUDA binary exists and is executable. */
+    /** Return true if the CUDA binary exists and is executable on this platform. */
     private boolean hasCudaBinary() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("win")) {
+            System.out.println("[DEBUG] Skipping CUDA voxelizer: unsupported on Windows.");
+            return false;
+        }
         File exe = new File("./cuda_voxelizer");
-        return exe.exists() && exe.canExecute();
+        if (!exe.exists()) return false;
+        if (!exe.canExecute()) {
+            System.out.println("[DEBUG] cuda_voxelizer exists but is not executable. Falling back to CPU.");
+            return false;
+        }
+        return true;
     }
 
     /** Run the CPU voxelizer for one GLB -> writes <base>_128.json and <base>_position.json. */
@@ -536,22 +547,31 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         int exitCode = -999;
         if (hasCudaBinary()) {
             triedGpu = true;
-            ProcessBuilder pb = new ProcessBuilder(
-                    "./cuda_voxelizer",
-                    "-f", glb.getAbsolutePath(),
-                    "-o", "json",
-                    "-s", Integer.toString(grid),
-                    "-3dtiles",
-                    "-output", directory
-            );
-            pb.directory(new File(System.getProperty("user.dir")));
-            pb.redirectErrorStream(true);
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        "./cuda_voxelizer",
+                        "-f", glb.getAbsolutePath(),
+                        "-o", "json",
+                        "-s", Integer.toString(grid),
+                        "-3dtiles",
+                        "-output", directory
+                );
+                pb.directory(new File(System.getProperty("user.dir")));
+                pb.redirectErrorStream(true);
 
-            Process p = pb.start();
-            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
-                while (r.readLine() != null) { /* swallow */ }
+                Process p = pb.start();
+                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                    while (r.readLine() != null) { /* swallow */ }
+                }
+                exitCode = p.waitFor();
+            } catch (IOException ioe) {
+                System.out.println("[WARN] Failed to launch cuda_voxelizer: " + ioe.getMessage());
+                exitCode = -1;
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                System.out.println("[WARN] cuda_voxelizer interrupted: " + ie.getMessage());
+                exitCode = -1;
             }
-            exitCode = p.waitFor();
         }
 
         if (triedGpu && exitCode == 0 && outputJson.exists()) {
@@ -616,11 +636,15 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         return Math.sqrt(dr * dr + dg * dg + db * db);
     }
 
-    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ) throws IOException {
+    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, Map<String, double[]> tileTranslations) throws IOException {
         System.out.println("[DEBUG] loadIndexedJson called. Loading tiles into memory.");
+        if (tileFiles == null || tileFiles.isEmpty()) {
+            System.out.println("[DEBUG] No tile files provided.");
+            return;
+        }
+
         int numThreads = Runtime.getRuntime().availableProcessors();
         ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-
         List<Future<?>> futures = new ArrayList<>();
 
         for (String tileFileName : tileFiles) {
@@ -633,7 +657,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
             Future<?> future = executor.submit(() -> {
                 try {
-                    processJsonFile(jsonFile, baseName, chunkX, chunkZ);
+                    double[] translation = tileTranslations != null ? tileTranslations.get(tileFileName) : null;
+                    double[] translationCopy = translation != null ? Arrays.copyOf(translation, translation.length) : null;
+                    processJsonFile(jsonFile, baseName, chunkX, chunkZ, translationCopy);
                 } catch (Exception e) {
                     System.out.println("[DEBUG] Error loading JSON file: " + jsonFile.getName());
                     e.printStackTrace();
@@ -655,7 +681,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     // Overload with live progress (72–85%)
-    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, UUID playerId) throws IOException {
+    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, UUID playerId, Map<String, double[]> tileTranslations) throws IOException {
         int total = Math.max(1, tileFiles.size());
         java.util.concurrent.atomic.AtomicInteger processed = new java.util.concurrent.atomic.AtomicInteger(0);
         notifyProgress(playerId, 72, "Indexing voxels …");
@@ -668,7 +694,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             if (indexedBlocks.containsKey(baseName)) continue;
             Future<?> future = executor.submit(() -> {
                 try {
-                    processJsonFile(jsonFile, baseName, chunkX, chunkZ);
+                    double[] translation = tileTranslations != null ? tileTranslations.get(tileFileName) : null;
+                    double[] translationCopy = translation != null ? Arrays.copyOf(translation, translation.length) : null;
+                    processJsonFile(jsonFile, baseName, chunkX, chunkZ, translationCopy);
                 } catch (Exception e) {
                     notifyProgress(playerId, -1, "Indexing failed: " + e.getMessage());
                 } finally {
@@ -686,35 +714,48 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         notifyProgress(playerId, 85, "Indexing complete");
     }
 
-    private void processJsonFile(File jsonFile, String baseName, int chunkX, int chunkZ) throws IOException {
+    private void processJsonFile(File jsonFile, String baseName, int chunkX, int chunkZ, double[] rawTranslation) throws IOException {
         System.out.println("[DEBUG] processJsonFile: " + jsonFile.getName());
         try (FileReader reader = new FileReader(jsonFile)) {
             JSONObject json = new JSONObject(new JSONTokener(reader));
 
-            File positionFile = new File(jsonFile.getParent(), baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
-            double[] tileTranslation = new double[3];
-            if (positionFile.exists()) {
-                try (FileReader posReader = new FileReader(positionFile)) {
-                    JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
-                    if (positionArray.length() > 0) {
-                        JSONObject positionData = positionArray.getJSONObject(0);
-                        JSONArray translationArray = positionData.getJSONArray("translation");
+            double rawX = 0.0;
+            double rawY = 0.0;
+            double rawZ = 0.0;
+            boolean hasRawTranslation = false;
 
-                        double rawX = translationArray.getDouble(0);
-                        double rawY = translationArray.getDouble(1);
-                        double rawZ = translationArray.getDouble(2);
-
-                        tileTranslation[0] = (rawX * scaleX) + offsetX + (chunkX * 16);
-                        tileTranslation[1] = (rawY * scaleY) + offsetY;
-                        tileTranslation[2] = (rawZ * scaleZ) + offsetZ + (chunkZ * 16);
-
-                        System.out.println("[DEBUG] positionFile: " + positionFile.getName());
-                        System.out.println("[DEBUG] Raw translation: (" + rawX + ", " + rawY + ", " + rawZ + ")");
-                        System.out.println("[DEBUG] Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
-                    }
-                }
+            if (rawTranslation != null && rawTranslation.length >= 3) {
+                rawX = rawTranslation[0];
+                rawY = rawTranslation[1];
+                rawZ = rawTranslation[2];
+                hasRawTranslation = true;
+                System.out.println("[DEBUG] Using TileDownloader translation for " + baseName + ": (" + rawX + ", " + rawY + ", " + rawZ + ")");
             } else {
-                System.out.println("[DEBUG] No position file for: " + baseName);
+                File positionFile = new File(jsonFile.getParent(), baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
+                if (positionFile.exists()) {
+                    try (FileReader posReader = new FileReader(positionFile)) {
+                        JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
+                        if (positionArray.length() > 0) {
+                            JSONObject positionData = positionArray.getJSONObject(0);
+                            JSONArray translationArray = positionData.getJSONArray("translation");
+                            rawX = translationArray.getDouble(0);
+                            rawY = translationArray.getDouble(1);
+                            rawZ = translationArray.getDouble(2);
+                            hasRawTranslation = true;
+                            System.out.println("[DEBUG] Fallback positionFile: " + positionFile.getName());
+                        }
+                    }
+                } else {
+                    System.out.println("[DEBUG] No translation data for: " + baseName + " (no CLI data and no position file)");
+                }
+            }
+
+            double[] tileTranslation = new double[3];
+            if (hasRawTranslation) {
+                tileTranslation[0] = (rawX * scaleX) + offsetX + (chunkX * 16);
+                tileTranslation[1] = (rawY * scaleY) + offsetY;
+                tileTranslation[2] = (rawZ * scaleZ) + offsetZ + (chunkZ * 16);
+                System.out.println("[DEBUG] Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
             }
 
             if (!json.has("blocks") || !json.has("xyzi")) {
@@ -939,6 +980,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
                 notifyProgress(playerUUID, 20, "Downloading tiles …");
                 List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
+                Map<String, double[]> tileTranslations = new HashMap<>(tileDownloader.getTileTranslations());
                 System.out.println("[DEBUG] Downloaded tile files: " + downloadedTileFiles);
 
                 if (downloadedTileFiles.isEmpty()) {
@@ -969,7 +1011,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     System.out.println("[DEBUG] Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
                 }
 
-                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ, playerUUID);
+                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ, playerUUID, tileTranslations);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
 
@@ -1014,27 +1056,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     System.out.println("[DEBUG] Computed yOffset: " + yOffset.get());
 
                 if (isVisit) {
-                    // After voxelizer writes *_position.json, now store the *new* origin for future loads
-                    String positionFileName = initialTileKey.replaceFirst("\\.glb.*$", "") + "_position.json";
-                    File positionFile = new File(outputDirectory, positionFileName);
-                    if (positionFile.exists()) {
-                        try (FileReader posReader = new FileReader(positionFile)) {
-                            JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
-                            if (positionArray.length() > 0) {
-                                JSONObject positionData = positionArray.getJSONObject(0);
-                                JSONArray originArray = positionData.getJSONArray("origin");
-                                double[] origin = new double[]{
-                                    originArray.getDouble(0),
-                                    originArray.getDouble(1),
-                                    originArray.getDouble(2)
-                                };
-                                playerOrigins.put(playerUUID, origin); // NEW: store for subsequent loads
-                                System.out.println("[DEBUG] Storing player origin: " + Arrays.toString(origin));
-                            }
-                        } catch (Exception e) {
-                            System.out.println("[DEBUG] Error reading position file for origin:");
-                            e.printStackTrace();
-                        }
+                    double[] discoveredOrigin = tileDownloader.getOrigin();
+                    if (discoveredOrigin != null) {
+                        double[] originCopy = Arrays.copyOf(discoveredOrigin, discoveredOrigin.length);
+                        playerOrigins.put(playerUUID, originCopy);
+                        System.out.println("[DEBUG] Storing player origin from TileDownloader: " + Arrays.toString(originCopy));
+                    } else {
+                        System.out.println("[DEBUG] TileDownloader did not report an origin for this download.");
                     }
                     playerYOffsets.put(playerUUID, yOffset.get());
                 } else {
