@@ -38,6 +38,16 @@
           <artifactId>json</artifactId>
           <version>20230227</version> <!-- Use the latest version -->
       </dependency>
+        <dependency>
+        <groupId>de.javagl</groupId>
+        <artifactId>jgltf-model</artifactId>
+        <version>2.0.4</version>
+      </dependency>
+      <dependency>
+        <groupId>de.javagl</groupId>
+        <artifactId>jgltf-impl-v2</artifactId>
+        <version>2.0.4</version>
+      </dependency>
     </dependencies>
 <build>
   <resources>

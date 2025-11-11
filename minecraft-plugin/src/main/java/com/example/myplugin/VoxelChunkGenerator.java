@@ -10,9 +10,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
+
 import org.json.JSONTokener;
 
 import org.bukkit.Bukkit;
@@ -22,10 +20,9 @@ import java.util.function.BiConsumer;
 
 import java.io.InputStream;
 import java.awt.Color;
-import java.util.Iterator;
 import java.nio.file.*;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+// player
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -40,9 +37,6 @@ import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.ScoreboardManager;
-
-// player
-import java.util.UUID;
 
 public class VoxelChunkGenerator extends ChunkGenerator {
 
@@ -505,40 +499,82 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         notifyProgress(playerId, 70, "Voxelization complete");
     }
 
-    private void processVoxelizerFile(String directory, String tileFileName) throws IOException, InterruptedException {
-        File file = new File(directory, tileFileName);
-        String baseName = file.getName();
-        String outputJson = baseName + "_128.json";
-        File outputFile = new File(directory, outputJson);
 
-        if (outputFile.exists()) {
-            System.out.println("[DEBUG] Skipping voxelization, " + outputJson + " already exists.");
+    /** Return true if the CUDA binary exists and is executable. */
+    private boolean hasCudaBinary() {
+        File exe = new File("./cuda_voxelizer");
+        return exe.exists() && exe.canExecute();
+    }
+
+    /** Run the CPU voxelizer for one GLB -> writes <base>_128.json and <base>_position.json. */
+    private void runCpuVoxelizer(String directory, File glbFile, int grid, boolean tiles3d) {
+        try {
+            JavaCpuVoxelizer vox = new JavaCpuVoxelizer(grid, tiles3d, /*verbose*/ false);
+            vox.voxelizeSingleGLB(glbFile, new File(directory));
+        } catch (Throwable t) {
+            throw new RuntimeException("CPU voxelizer failed for " + glbFile.getName() + ": " + t.getMessage(), t);
+        }
+    }
+
+    private void processVoxelizerFile(String directory, String tileFileName) throws IOException, InterruptedException {
+        final int grid = 128;
+        File glb = new File(directory, tileFileName);
+        String baseName = glb.getName();
+        // ⬇️ minimal tweak: CUDA writes <base-without-.glb>_128.json
+        String baseNoExt = baseName.replaceFirst("\\.glb(?:\\..*)?$", "");
+        File outputJson = new File(directory, baseNoExt + "_" + grid + ".json");
+
+        if (outputJson.exists()) {
+            System.out.println("[DEBUG] Skipping voxelization, " + outputJson.getName() + " already exists.");
             return;
         }
 
-        System.out.println("[DEBUG] Running voxelizer on " + file.getName());
+        System.out.println("[DEBUG] Running voxelizer on " + glb.getName());
 
-        ProcessBuilder processBuilder = new ProcessBuilder(
-                "./cuda_voxelizer",
-                "-f", file.getAbsolutePath(),
-                "-o", "json",
-                "-s", "128",
-                "-3dtiles",
-                "-output", directory
-        );
+        // Try CUDA first if the binary is present
+        boolean triedGpu = false;
+        int exitCode = -999;
+        if (hasCudaBinary()) {
+            triedGpu = true;
+            ProcessBuilder pb = new ProcessBuilder(
+                    "./cuda_voxelizer",
+                    "-f", glb.getAbsolutePath(),
+                    "-o", "json",
+                    "-s", Integer.toString(grid),
+                    "-3dtiles",
+                    "-output", directory
+            );
+            pb.directory(new File(System.getProperty("user.dir")));
+            pb.redirectErrorStream(true);
 
-        processBuilder.directory(new File(System.getProperty("user.dir")));
-        processBuilder.redirectErrorStream(true);
-
-        Process process = processBuilder.start();
-        int exitCode = process.waitFor();
-
-        if (exitCode != 0) {
-            throw new RuntimeException("Voxelizer process failed with exit code " + exitCode);
+            Process p = pb.start();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                while (r.readLine() != null) { /* swallow */ }
+            }
+            exitCode = p.waitFor();
         }
 
-        System.out.println("[DEBUG] Voxelization completed: " + outputJson);
+        if (triedGpu && exitCode == 0 && outputJson.exists()) {
+            System.out.println("[DEBUG] Voxelization completed (GPU): " + outputJson.getName());
+            return;
+        }
+
+        if (triedGpu) {
+            System.out.println("[WARN] CUDA voxelizer failed (code " + exitCode + ") or did not produce output. Falling back to CPU …");
+        } else {
+            System.out.println("[INFO] CUDA voxelizer not found. Using CPU fallback …");
+        }
+
+        // CPU fallback: writes the same <base>_128.json your loader expects
+        runCpuVoxelizer(directory, glb, grid, /*tiles3d*/ true);
+
+        if (!outputJson.exists()) {
+            throw new RuntimeException("CPU voxelizer did not produce " + outputJson.getName());
+        }
+        System.out.println("[DEBUG] Voxelization completed (CPU): " + outputJson.getName());
     }
+
+
 
     private static final double MAX_COLOR_DISTANCE = 30.0;
     private Map<Integer, Material> colorIndexToMaterialCache = new HashMap<>();

@@ -14,22 +14,27 @@ Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel rep
 #### Map Viewer
 
 Moved to [Web Client](https://github.com/voxelearth/web-client) repository.
-This will voxelize and render 3D Tilesets all in your browser without needing a GPU.
-
-#### Single Files, Custom Locations
-There are also other demos available, such as custom GPU or CPU voxelization on single files or even custom locations. In older versions of the repository, you'll find ObjToSchematic (deprecated) and use it like this:
-```bash
-cd ObjToSchematic
-node voxelize.js myfile.glb cpu # For CPU voxelization
-node voxelize.js myfile.glb # For GPU voxelization
-```
-This will save to myfile_voxel.glb.
+This will voxelize and render 3D Tiles all in your browser.
 
 #### Minecraft
-We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. 
-The plugin is available but needs some weird setup with WSL2-Ubuntu since it uses our GPU Voxelizer, Python, and NodeJS. **Only for NVIDIA GPUs.** 
+We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. The plugin should work on Windows and Linux, but needs some weird setup since it uses Python and NodeJS. **(Linux / NVIDIA GPU Voxelizer is optional, but will make it faster.)** 
 
-Install Ubuntu from the Microsoft Store and inside of it, paste:
+To make it easier, we have made bash scripts that handle Node/Python dependencies.
+
+The fastest setup for Linux is:
+```
+git clone https://github.com/voxelearth/dynamicloader
+cd dynamicloader
+./setupsingle.sh
+```
+For Windows, download and use the same zipfile with a bash script.
+```
+git clone https://github.com/voxelearth/dynamicloader
+cd dynamicloader
+./setupsingle.bat
+```
+
+For those who prefer to do it barebones without a zipfile- install Ubuntu from the Microsoft Store and inside of it, paste:
 
 ```bash
 # Install Java and Maven
@@ -45,6 +50,7 @@ wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/Intellec
 echo "eula=true" > eula.txt
 git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
 cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
+# Optional GPU voxelizer, if left out, plugin falls back to CPU
 chmod 777 cuda_voxelizer
 cd scripts
 npm install
@@ -89,14 +95,16 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ✔ ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
 
-[ ‌ ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
+[ ✔‌ ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
 
 [ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
 
 
 ### Developing
 **CPU Voxelization:**\
-Not supported in the Minecraft plugin, but we have an implementation over at [Web Client](https://github.com/voxelearth/web-client). If anyone wants to merge CPU voxelization here, please open a pull request!
+Supported and works across the board. Used as a fallback when `cuda_voxelizer` is not present or does not work in the server directory.
+
+To edit the CPU voxelizer, please test against our [CLI Jarfile](https://github.com/voxelearth/java-cpu-voxelizer) for much faster and easier development! After making your optimizations, feel free to drop your changes into the `JavaCpuVoxelizer.java` class in the plugin and open a pull request!
 
 **GPU Voxelization:**\
 *(Currently Linux-only / WSL2)*\
