@@ -1,5 +1,5 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.example.voxelearth</groupId>
     <artifactId>voxelearth</artifactId>
@@ -14,6 +14,14 @@
       </repository>
     </repositories>
 
+    <properties>
+        <lwjgl.version>3.3.6</lwjgl.version>
+        <!-- 1. ADDED PROPERTIES for Jackson version and encoding -->
+        <jackson.version>2.17.1</jackson.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+
     <dependencies>
         <dependency>
           <groupId>io.papermc.paper</groupId>
@@ -21,7 +29,7 @@
           <version>1.20.4-R0.1-SNAPSHOT</version>
           <scope>provided</scope>
         </dependency>
-          <dependency>
+        <dependency>
           <groupId>com.mojang</groupId>
           <artifactId>brigadier</artifactId>
           <version>1.0.18</version>
@@ -36,7 +44,7 @@
         <dependency>
           <groupId>org.json</groupId>
           <artifactId>json</artifactId>
-          <version>20230227</version> <!-- Use the latest version -->
+          <version>20230227</version>
       </dependency>
         <dependency>
         <groupId>de.javagl</groupId>
@@ -48,62 +56,192 @@
         <artifactId>jgltf-impl-v2</artifactId>
         <version>2.0.4</version>
       </dependency>
-    </dependencies>
-<build>
-  <resources>
-    <resource>
-      <directory>src/main/resources</directory>
-      <filtering>true</filtering>
-    </resource>
-  </resources>
-    <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <version>3.11.0</version>
-            <configuration>
-                <release>21</release>
-            </configuration>
-        </plugin>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-shade-plugin</artifactId>
-            <version>3.5.3</version>
-            <executions>
-                <execution>
-                    <phase>package</phase>
-                    <goals>
-                        <goal>shade</goal>
-                    </goals>
-                    <configuration>
-                        <finalName>VoxelEarth</finalName>
-                        <minimizeJar>false</minimizeJar>
-                        <relocations>
-                            <relocation>
-                                <pattern>org.json</pattern>
-                                <shadedPattern>my.shaded.org.json</shadedPattern>
-                            </relocation>
-                        </relocations>
-                    </configuration>
-                </execution>
-            </executions>
-        </plugin>
-    </plugins>
-</build>
 
-<profiles>
-  <profile>
-    <id>release</id>
-    <properties>
-      <voxelearth.debug>false</voxelearth.debug>
-    </properties>
-  </profile>
-  <profile>
-    <id>debug</id>
-    <properties>
-      <voxelearth.debug>true</voxelearth.debug>
-    </properties>
-  </profile>
-</profiles>
+      <!-- 2. ADDED EXPLICIT JACKSON DEPENDENCIES -->
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+          <groupId>com.fasterxml.jackson.core</groupId>
+          <artifactId>jackson-core</artifactId>
+          <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+          <groupId>com.fasterxml.jackson.core</groupId>
+          <artifactId>jackson-annotations</artifactId>
+          <version>${jackson.version}</version>
+      </dependency>
+
+      <!-- LWJGL core + Assimp bindings -->
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+      </dependency>
+
+      <!-- Natives for all major platforms (ok for a “fat” CLI jar) -->
+      <!-- Windows -->
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows-arm64</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows-arm64</classifier>
+      </dependency>
+      <!-- Linux -->
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux-arm64</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux-arm64</classifier>
+      </dependency>
+      <!-- macOS -->
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-macos</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-macos</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-macos-arm64</classifier>
+      </dependency>
+      <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-assimp</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-macos-arm64</classifier>
+      </dependency>
+
+    </dependencies>
+    <build>
+      <resources>
+        <resource>
+          <directory>src/main/resources</directory>
+          <filtering>true</filtering>
+        </resource>
+      </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <release>21</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>VoxelEarth</finalName>
+                            <minimizeJar>false</minimizeJar>
+                            <!-- 3. THIS IS THE CRITICAL FIX -->
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.json</pattern>
+                                    <shadedPattern>com.example.voxelearth.shaded.org.json</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.fasterxml.jackson</pattern>
+                                    <shadedPattern>com.example.voxelearth.shaded.jackson</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>de.javagl</pattern>
+                                    <shadedPattern>com.example.voxelearth.shaded.javagl</shadedPattern>
+                                </relocation>
+                                <!--
+                                  REMOVED the relocation for org.lwjgl.
+                                  It breaks the native library loading.
+                                -->
+                            </relocations>
+                            
+                            <!-- 
+                              ADD THIS TRANSFORMER.
+                              This correctly merges LWJGL's native loader config files.
+                            -->
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- ... your profiles section remains unchanged ... -->
+    <profiles>
+      <profile>
+        <id>release</id>
+        <properties>
+          <voxelearth.debug>false</voxelearth.debug>
+        </properties>
+      </profile>
+      <profile>
+        <id>debug</id>
+        <properties>
+          <voxelearth.debug>true</voxelearth.debug>
+        </properties>
+      </profile>
+    </profiles>
 
 </project>
