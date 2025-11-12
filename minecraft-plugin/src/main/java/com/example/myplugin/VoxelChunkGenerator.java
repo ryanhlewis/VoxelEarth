@@ -1316,18 +1316,14 @@ private double metersPerChunk() {
 }
 
 public int[] computeIslandBaseFor(double lat, double lng) {
+    int gNorth = (int)Math.floor((lat + 90.0)  / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
+    int gEast  = (int)Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
 
-    int gridX = (int) Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
-
-    int gridZ = (int) Math.floor((lat + 90.0) / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
-
-    int baseChunkX = gridX * ISLAND_STRIDE_CHUNKS;
-
-    int baseChunkZ = gridZ * ISLAND_STRIDE_CHUNKS;
-
-    return new int[]{baseChunkX, baseChunkZ};
-
+    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X ⇐ latitude (north/south)
+    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z ⇐ longitude (east/west)
+    return new int[]{ baseChunkX, baseChunkZ };
 }
+
 
 
 
