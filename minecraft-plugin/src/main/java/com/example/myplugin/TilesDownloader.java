@@ -22,6 +22,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 final class TilesDownloader implements AutoCloseable {
 
+    private static final URI ROOT_TILES_ENDPOINT = URI.create("https://tile.googleapis.com/v1/3dtiles/root.json");
+    private static final long SESSION_TTL_MS = TimeUnit.HOURS.toMillis(3);
+    private static final Object CACHE_LOCK = new Object();
+    private static volatile String cachedSession;
+    private static volatile long sessionExpiresAtMs;
+    private static volatile String cachedRootUrl;
+    private static volatile long rootExpiresAtMs;
+
     // --- HTTP + JSON ---
     private final HttpClient http;
     private final ExecutorService httpExec; // daemon executor for HttpClient
@@ -152,11 +160,19 @@ final class TilesDownloader implements AutoCloseable {
         CountDownLatch done = new CountDownLatch(1);
         AtomicInteger tasks = new AtomicInteger(0);
 
-        Runnable submitRoot = () -> submitTileset(
-                withParam(URI.create("https://tile.googleapis.com/v1/3dtiles/root.json"), "key", apiKey, null),
-                apiKey, sessionRef, region, results, tasks, done);
+        String warmRoot = getActiveRootUrl();
+        String warmSession = getActiveSessionToken();
+        URI initialTileset;
+        if (warmRoot != null && warmSession != null) {
+            sessionRef.set(warmSession);
+            rememberSessionToken(warmSession);
+            initialTileset = ensureKeySession(URI.create(warmRoot), apiKey, warmSession);
+        } else {
+            initialTileset = withParam(ROOT_TILES_ENDPOINT, "key", apiKey, null);
+        }
 
-        submitRoot.run();
+        log("[TilesDownloader] Initial tileset: %s", initialTileset);
+        submitTileset(initialTileset, apiKey, sessionRef, region, results, tasks, done);
         done.await(); // until all fan-out tasks complete
         return results;
     }
@@ -188,12 +204,19 @@ final class TilesDownloader implements AutoCloseable {
                                       AtomicInteger tasks,
                                       CountDownLatch done) throws Exception {
         tilesetUri = ensureKeySession(tilesetUri, apiKey, sessionRef.get());
+        String activeSession = sessionRef.get();
+        if (activeSession != null && isTilesetRootJson(tilesetUri)) {
+            rememberRootAndSession(tilesetUri, activeSession);
+        }
         HttpRequest req = HttpRequest.newBuilder(tilesetUri)
                 .timeout(Duration.ofSeconds(30))
                 .GET().build();
 
         HttpResponse<byte[]> rsp = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
         if (rsp.statusCode() != 200) {
+            if (rsp.statusCode() == 401 || rsp.statusCode() == 403 || rsp.statusCode() == 404) {
+                clearCachedRootAndSession();
+            }
             log("[WARN] HTTP %d for %s", rsp.statusCode(), tilesetUri);
             return;
         }
@@ -256,7 +279,11 @@ final class TilesDownloader implements AutoCloseable {
 
             // adopt child session if present
             String childSession = getQueryParam(contentUri, "session");
-            if (childSession != null) sessionRef.set(childSession);
+            if (childSession != null) {
+                sessionRef.set(childSession);
+                rememberSessionToken(childSession);
+                maybeRememberRoot(contentUri, childSession);
+            }
 
             // ensure key+session
             contentUri = ensureKeySession(contentUri, apiKey, sessionRef.get());
@@ -360,6 +387,83 @@ final class TilesDownloader implements AutoCloseable {
         double dx=maxX-minX, dy=maxY-minY, dz=maxZ-minZ;
         double radius = 0.5 * Math.sqrt(dx*dx + dy*dy + dz*dz);
         return new Sphere(new double[]{ (minX+maxX)*0.5, (minY+maxY)*0.5, (minZ+maxZ)*0.5 }, radius);
+    }
+
+    private static long nowMillis() {
+        return System.currentTimeMillis();
+    }
+
+    private static String getActiveSessionToken() {
+        String session = cachedSession;
+        if (session == null) return null;
+        if (nowMillis() >= sessionExpiresAtMs) return null;
+        return session;
+    }
+
+    private static String getActiveRootUrl() {
+        String root = cachedRootUrl;
+        if (root == null) return null;
+        if (nowMillis() >= rootExpiresAtMs) return null;
+        return root;
+    }
+
+    private static void rememberSessionToken(String session) {
+        if (session == null || session.isBlank()) return;
+        long expiry = nowMillis() + SESSION_TTL_MS;
+        synchronized (CACHE_LOCK) {
+            cachedSession = session;
+            sessionExpiresAtMs = expiry;
+            if (cachedRootUrl != null && rootExpiresAtMs < expiry) {
+                rootExpiresAtMs = expiry;
+            }
+        }
+    }
+
+    private static void rememberRootAndSession(URI contentUri, String session) {
+        if (contentUri == null || session == null || session.isBlank()) return;
+        if (!isTilesetRootJson(contentUri)) return;
+        String stripped = stripQuery(contentUri);
+        if (stripped == null || stripped.isBlank()) return;
+        long expiry = nowMillis() + SESSION_TTL_MS;
+        synchronized (CACHE_LOCK) {
+            cachedRootUrl = stripped;
+            cachedSession = session;
+            rootExpiresAtMs = expiry;
+            sessionExpiresAtMs = expiry;
+        }
+    }
+
+    private static void maybeRememberRoot(URI contentUri, String session) {
+        if (contentUri == null || session == null || session.isBlank()) return;
+        if (!isTilesetRootJson(contentUri)) return;
+        rememberRootAndSession(contentUri, session);
+    }
+
+    private static String stripQuery(URI uri) {
+        if (uri == null) return null;
+        try {
+            return new URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null).toString();
+        } catch (Exception e) {
+            return uri.toString();
+        }
+    }
+
+    private static boolean isTilesetRootJson(URI uri) {
+        if (uri == null) return false;
+        String path = uri.getPath();
+        if (path == null) return false;
+        if (!path.endsWith("/root.json")) return false;
+        String[] parts = path.split("/");
+        return parts.length >= 5 && !parts[3].isBlank();
+    }
+
+    private static void clearCachedRootAndSession() {
+        synchronized (CACHE_LOCK) {
+            cachedRootUrl = null;
+            cachedSession = null;
+            rootExpiresAtMs = 0L;
+            sessionExpiresAtMs = 0L;
+        }
     }
 
     // =================== URL helpers ===================

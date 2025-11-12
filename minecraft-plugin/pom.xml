@@ -12,6 +12,25 @@
         <id>papermc-repo</id>
         <url>https://repo.papermc.io/repository/maven-public/</url>
       </repository>
+
+        <!-- NEW: EngineHub (WorldEdit + org.enginehub.lin-bus …) -->
+        <repository>
+          <id>enginehub</id>
+          <url>https://maven.enginehub.org/repo/</url>
+        </repository>
+
+        <!-- NEW: FAWE (IntellectualSites) -->
+        <repository>
+          <id>intellectualsites-releases</id>
+          <url>https://mvn.intellectualsites.com/content/repositories/releases/</url>
+        </repository>
+        <repository>
+          <id>intellectualsites-snapshots</id>
+          <url>https://mvn.intellectualsites.com/content/repositories/snapshots/</url>
+          <releases><enabled>false</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+
     </repositories>
 
     <properties>
@@ -162,6 +181,22 @@
         <version>${lwjgl.version}</version>
         <classifier>natives-macos-arm64</classifier>
       </dependency>
+
+<!-- FastAsyncWorldEdit (provided at runtime by the server) -->
+<dependency>
+  <groupId>com.fastasyncworldedit</groupId>
+  <artifactId>FastAsyncWorldEdit-Bukkit</artifactId>
+  <version>2.12.3</version>
+  <scope>provided</scope>
+</dependency>
+
+<!-- WorldEdit API (use a real, published version from EngineHub) -->
+<dependency>
+  <groupId>com.sk89q.worldedit</groupId>
+  <artifactId>worldedit-bukkit</artifactId>
+  <version>7.2.17</version>
+  <scope>provided</scope>
+</dependency>
 
     </dependencies>
     <build>

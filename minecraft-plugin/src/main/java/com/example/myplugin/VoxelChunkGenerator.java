@@ -1,42 +1,40 @@
 package com.example.voxelearth;
 
-import org.bukkit.Material;
-import org.bukkit.generator.ChunkGenerator;
-import org.bukkit.generator.WorldInfo;
-import org.bukkit.generator.ChunkGenerator.ChunkData;
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-
-import org.json.JSONTokener;
-
+import com.sk89q.worldedit.EditSession;
+import com.sk89q.worldedit.WorldEdit;
+import com.sk89q.worldedit.bukkit.BukkitAdapter;
+import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.world.block.BlockState;
 import org.bukkit.Bukkit;
-import org.bukkit.World;
-import org.bukkit.Chunk;
-import java.util.function.BiConsumer;
-
-import java.io.InputStream;
-import java.awt.Color;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.security.SecureRandom;
-// player
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.Consumer;
-
-import org.bukkit.block.Block;
-import org.bukkit.inventory.ItemStack;
-
-import org.bukkit.Material;
-import org.bukkit.entity.Player;
 import org.bukkit.ChatColor;
+import org.bukkit.Chunk;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.entity.Player;
+import org.bukkit.generator.ChunkGenerator;
+import org.bukkit.generator.ChunkGenerator.ChunkData;
+import org.bukkit.generator.WorldInfo;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.ScoreboardManager;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+
+import java.awt.Color;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.SecureRandom;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 public class VoxelChunkGenerator extends ChunkGenerator {
 
@@ -44,7 +42,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private static final double LNG_ORIGIN = 14.451093643141064;
     private static final String API_KEY = "AIzaSy..."; // Your API key here
     private TileDownloader tileDownloader;
-    private ConcurrentHashMap<String, Map<String, Object>> indexedBlocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, IndexedTile> indexedBlocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JavaCpuVoxelizer.VoxelPayload> voxelCache = new ConcurrentHashMap<>();
     private static final List<MaterialColor> MATERIAL_COLORS = new ArrayList<>();
     private Map<Integer, Material> colorToMaterialCache = new HashMap<>();
     private Map<UUID, double[]> playerOrigins = new ConcurrentHashMap<>();
@@ -119,6 +118,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
     // Prefer FAWE when available; fall back to BlockChanger automatically.
     private final boolean faweAvailable = detectFawe();
+    private record Voxel(int x, int y, int z, Material material) {}
+
     private static final class VoxelizedTile {
         final String tileId;
         final JavaCpuVoxelizer.VoxelPayload payload;
@@ -128,6 +129,43 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             this.tileId = tileId;
             this.payload = payload;
             this.translation = (translation != null) ? Arrays.copyOf(translation, translation.length) : null;
+        }
+    }
+
+    private static final class IndexedTile {
+        private final String tileId;
+        private final List<Voxel> voxels;
+        private final Map<Long, Material> lookup;
+        private volatile boolean placed;
+
+        IndexedTile(String tileId, List<Voxel> voxels) {
+            this.tileId = tileId;
+            this.voxels = Collections.unmodifiableList(new ArrayList<>(voxels));
+            this.lookup = buildLookup(this.voxels);
+        }
+
+        List<Voxel> voxels() {
+            return voxels;
+        }
+
+        boolean isPlaced() {
+            return placed;
+        }
+
+        void markPlaced() {
+            this.placed = true;
+        }
+
+        Material materialAt(int x, int y, int z) {
+            return lookup.get(encodeBlockKey(x, y, z));
+        }
+
+        private static Map<Long, Material> buildLookup(List<Voxel> voxels) {
+            Map<Long, Material> data = new HashMap<>(Math.max(16, voxels.size()));
+            for (Voxel voxel : voxels) {
+                data.put(encodeBlockKey(voxel.x(), voxel.y(), voxel.z()), voxel.material());
+            }
+            return data;
         }
     }
 
@@ -247,7 +285,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private String trimForScore(String s, int max) {
         if (s == null) return "";
         if (s.length() <= max) return s;
-        return s.substring(0, Math.max(0, max - 1)) + "…";
+        return s.substring(0, Math.max(0, max - 1)) + "â€¦";
     }
 
     private boolean detectFawe() {
@@ -275,7 +313,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         System.out.println("[DEBUG] regenChunks called with scaleX=" + scaleX + ", scaleY=" + scaleY + ", scaleZ=" + scaleZ);
         System.out.println("[DEBUG] offsets: X=" + newOffsetX + ", Y=" + newOffsetY + ", Z=" + newOffsetZ);
 
-        indexedBlocks = new ConcurrentHashMap<>();
+        indexedBlocks.clear();
         loadMaterialColors();
         System.out.println("[DEBUG] MATERIAL_COLORS size: " + MATERIAL_COLORS.size());
 
@@ -337,18 +375,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     private void placeNewBlock(Chunk chunk, int x, int y, int z, World world) {
-        String blockKey = x + "," + y + "," + z;
-
-        for (ConcurrentHashMap.Entry<String, Map<String, Object>> tileEntry : indexedBlocks.entrySet()) {
-            Map<String, Object> indexMap = tileEntry.getValue();
-            if (indexMap == null || (boolean) indexMap.getOrDefault("isPlaced", false)) continue;
-
-            Map<String, Material> blockMap = (Map<String, Material>) indexMap.get("blocks");
-            Material material = blockMap.get(blockKey);
-
+        for (IndexedTile tile : indexedBlocks.values()) {
+            if (tile == null || tile.isPlaced()) continue;
+            Material material = tile.materialAt(x, y, z);
             if (material != null) {
                 BlockChanger.setSectionBlockAsynchronously(chunk.getBlock(x, y, z).getLocation(), new ItemStack(material), false);
-                indexMap.put("isPlaced", true);
+                tile.markPlaced();
             }
         }
     }
@@ -425,8 +457,19 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         for (int i = 0; i < tiles.size(); i++) {
             TileDownloader.TilePayload tile = tiles.get(i);
             try {
-                JavaCpuVoxelizer.VoxelPayload payload = voxelizer.voxelizeToMemory(tile.tileId(), tile.glbBytes());
-                results.add(new VoxelizedTile(tile.tileId(), payload, tile.translation()));
+                JavaCpuVoxelizer.VoxelPayload payload = voxelCache.get(tile.tileId());
+                if (payload != null) {
+                    System.out.println("[DEBUG] Voxel cache hit: " + tile.tileId());
+                } else {
+                    System.out.println("[DEBUG] Voxel cache miss: " + tile.tileId());
+                    payload = voxelizer.voxelizeToMemory(tile.tileId(), tile.glbBytes());
+                    if (payload != null) {
+                        voxelCache.put(tile.tileId(), payload);
+                    }
+                }
+                if (payload != null) {
+                    results.add(new VoxelizedTile(tile.tileId(), payload, tile.translation()));
+                }
             } catch (Exception e) {
                 System.out.println("[WARN] Voxelizer failed for " + tile.tileId() + ": " + e.getMessage());
                 if (playerId != null) notifyProgress(playerId, -1, "Voxelizer failed for " + tile.tileId());
@@ -484,7 +527,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             colorIndexToMaterial.put(entry.getKey(), mapRgbaToMaterial(entry.getValue()));
         }
 
-        Map<String, Material> blockMap = new HashMap<>();
+        List<Voxel> voxels = new ArrayList<>(tile.payload.xyzi().size());
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
 
@@ -498,10 +541,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             int translatedY = (int) Math.round(y + tileTranslation[1]);
             int translatedZ = (int) Math.round(z + tileTranslation[2]);
 
-            String blockName = translatedX + "," + translatedY + "," + translatedZ;
             Material material = colorIndexToMaterial.get(colorIndex);
             if (material != null) {
-                blockMap.put(blockName, material);
+                voxels.add(new Voxel(translatedX, translatedY, translatedZ, material));
                 if (translatedX < minX) minX = translatedX;
                 if (translatedY < minY) minY = translatedY;
                 if (translatedZ < minZ) minZ = translatedZ;
@@ -511,17 +553,14 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             }
         }
 
-        HashMap<String, Object> indexMap = new HashMap<>();
-        indexMap.put("isPlaced", false);
-        indexMap.put("blocks", blockMap);
-        indexedBlocks.putIfAbsent(tile.tileId, indexMap);
-        System.out.println("[DEBUG] Loaded tile: " + tile.tileId + " with " + blockMap.size() + " blocks.");
+        IndexedTile indexed = new IndexedTile(tile.tileId, voxels);
+        indexedBlocks.put(tile.tileId, indexed);
+        System.out.println("[DEBUG] Loaded tile: " + tile.tileId + " with " + voxels.size() + " blocks.");
         System.out.println("[DEBUG] Block bounding box for " + tile.tileId + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
     }
 
 
     private static final double MAX_COLOR_DISTANCE = 30.0;
-    private Map<Integer, Material> colorIndexToMaterialCache = new HashMap<>();
 
     private Material mapRgbaToMaterial(JSONArray rgbaArray) {
         return mapRgbaToMaterial(rgbaArray.getInt(0), rgbaArray.getInt(1), rgbaArray.getInt(2));
@@ -573,7 +612,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             return;
         }
 
-        indexedBlocks = new ConcurrentHashMap<>();
+        indexedBlocks.clear();
 
         String baseName = file.getName().replace(".json", "");
         try (FileReader reader = new FileReader(file)) {
@@ -588,7 +627,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
             JSONObject blocksObject = json.getJSONObject("blocks");
             JSONArray xyziArray = json.getJSONArray("xyzi");
-            Map<String, Material> blockMap = new HashMap<>();
+            List<Voxel> voxels = new ArrayList<>(xyziArray.length());
 
             Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
             Iterator<String> keys = blocksObject.keys();
@@ -612,67 +651,30 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 int translatedY = (int) ((y * scaleY + offsetY));
                 int translatedZ = (int) ((z * scaleZ + offsetZ));
 
-                String blockName = translatedX + "," + translatedY + "," + translatedZ;
                 Material material = colorIndexToMaterial.get(colorIndex);
 
                 if (material != null) {
-                    blockMap.put(blockName, material);
+                    voxels.add(new Voxel(translatedX, translatedY, translatedZ, material));
                 }
             }
 
-            HashMap<String, Object> indexMap = new HashMap<>();
-            indexMap.put("isPlaced", false);
-            indexMap.put("blocks", blockMap);
-
-            indexedBlocks.put(baseName, indexMap);
+            indexedBlocks.put(baseName, new IndexedTile(baseName, voxels));
 
             Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
                 System.out.println("[DEBUG] Starting chunk regeneration after loadJson...");
                 System.out.println("[DEBUG] IndexedBlocks length: " + indexedBlocks.size());
 
-                for (ConcurrentHashMap.Entry<String, Map<String, Object>> tileEntry : indexedBlocks.entrySet()) {
-                    Map<String, Object> indexMap1 = tileEntry.getValue();
+                World world = Bukkit.getWorld("world");
+                if (world == null) {
+                    System.out.println("[DEBUG] World not found in loadJson placement.");
+                    return;
+                }
 
-                    if (indexMap1 != null && !(boolean) indexMap1.get("isPlaced")) {
-                        indexMap1.put("isPlaced", true);
-                    } else {
-                        continue;
-                    }
-
-                    Map<String, Material> blockMap1 = (Map<String, Material>) indexMap1.get("blocks");
-                    for (Map.Entry<String, Material> blockEntry : blockMap1.entrySet()) {
-                        String[] parts = blockEntry.getKey().split(",");
-                        int originalX = Integer.parseInt(parts[0]);
-                        int originalY = Integer.parseInt(parts[1]);
-                        int originalZ = Integer.parseInt(parts[2]);
-
-                        int newX = originalX;
-                        int newY = originalY;
-                        int newZ = originalZ;
-
-                        int blockChunkX = newX >> 4;
-                        int blockChunkZ = newZ >> 4;
-
-                        World world = Bukkit.getWorld("world");
-                        if (world == null) {
-                            System.out.println("[DEBUG] World not found in loadJson placement.");
-                            continue;
-                        }
-
-                        Chunk chunk = world.getChunkAt(blockChunkX, blockChunkZ);
-                        if (!chunk.isLoaded()) {
-                            chunk.load();
-                        }
-
-                        int localX = newX & 15;
-                        int localZ = newZ & 15;
-
-                        BlockChanger.setSectionBlockAsynchronously(
-                            chunk.getBlock(localX, newY, localZ).getLocation(),
-                            new ItemStack(blockEntry.getValue()),
-                            false
-                        );
-                    }
+                for (Map.Entry<String, IndexedTile> tileEntry : indexedBlocks.entrySet()) {
+                    IndexedTile tile = tileEntry.getValue();
+                    if (tile == null || tile.isPlaced()) continue;
+                    placeBlocks(world, tile.voxels(), 0);
+                    tile.markPlaced();
                 }
                 System.out.println("[DEBUG] JSON generated.");
             });
@@ -704,7 +706,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 // CHANGED: handle origin based on visit/non-visit
                 if (isVisit) {
-                    // Fresh visit → clear any stale state and force null origin
+                    // Fresh visit â†’ clear any stale state and force null origin
                     beginVisit(playerUUID); // NEW
                     tileDownloader.setOrigin(null); // NEW: ensure no stale origin affects voxelization
                 } else {
@@ -718,13 +720,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                notifyProgress(playerUUID, 15, "Preparing download …");
+                notifyProgress(playerUUID, 15, "Preparing download â€¦");
                 
-                // 🔴 THIS is the key line:
+                // ðŸ”´ THIS is the key line:
                 tileDownloader.setRadius(isVisit ? getVisitTileRadius() : getMoveTileRadius());
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
-                notifyProgress(playerUUID, 20, "Downloading tiles …");
+                notifyProgress(playerUUID, 20, "Downloading tiles â€¦");
                 List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
                 System.out.println("[DEBUG] Downloaded tile payloads: " + downloadedTiles.size());
 
@@ -736,7 +738,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 }
 
                 System.out.println("[DEBUG] Running voxelizer for in-memory tiles...");
-                notifyProgress(playerUUID, 55, "Preparing voxelizer …");
+                notifyProgress(playerUUID, 55, "Preparing voxelizer â€¦");
                 List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, playerUUID);
                 if (voxelTiles.isEmpty()) {
                     notifyProgress(playerUUID, -1, "Voxelization failed.");
@@ -783,7 +785,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 System.out.println("[DEBUG] Starting chunk regeneration...");
                 System.out.println("[DEBUG] IndexedBlocks size: " + indexedBlocks.size());
-                notifyProgress(playerUUID, 90, "Placing blocks …");
+                notifyProgress(playerUUID, 90, "Placing blocks â€¦");
 
                 World world = Bukkit.getWorld("world");
                 if (world == null) {
@@ -793,12 +795,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     return;
                 }
 
-                Map<String, Object> indexMap1 = indexedBlocks.get(initialTileKey);
+                IndexedTile indexMap1 = indexedBlocks.get(initialTileKey);
                 if (indexMap1 != null) {
-                    Map<String, Material> blockMap1 = (Map<String, Material>) indexMap1.get("blocks");
-
-                    int minYInTile = blockMap1.keySet().stream()
-                            .mapToInt(key -> Integer.parseInt(key.split(",")[1]))
+                    int minYInTile = indexMap1.voxels().stream()
+                            .mapToInt(Voxel::y)
                             .min()
                             .orElse(0);
 
@@ -823,19 +823,18 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     }
                 }
 
-                    if (!(boolean) indexMap1.get("isPlaced")) {
+                    if (!indexMap1.isPlaced()) {
                         System.out.println("[DEBUG] Placing blocks for initial tile...");
-                        notifyProgress(playerUUID, 92, "Placing first tile …");
-                        placeBlocks(world, blockMap1, yOffset.get());
-                        indexMap1.put("isPlaced", true);
+                        notifyProgress(playerUUID, 92, "Placing first tile ...");
+                        placeBlocks(world, indexMap1.voxels(), yOffset.get());
+                        indexMap1.markPlaced();
                     }
 
-                    if (!blockMap1.isEmpty()) {
-                        String firstBlock = blockMap1.keySet().iterator().next();
-                        String[] coords = firstBlock.split(",");
-                        blockLocation[0] = Integer.parseInt(coords[0]);
-                        blockLocation[1] = Integer.parseInt(coords[1]) + yOffset.get();
-                        blockLocation[2] = Integer.parseInt(coords[2]);
+                    if (!indexMap1.voxels().isEmpty()) {
+                        Voxel first = indexMap1.voxels().get(0);
+                        blockLocation[0] = first.x();
+                        blockLocation[1] = first.y() + yOffset.get();
+                        blockLocation[2] = first.z();
 
                         System.out.println("[DEBUG] First block location: " + Arrays.toString(blockLocation));
                     }
@@ -844,21 +843,20 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 final String finalInitialTileKey = initialTileKey;
 
                 indexedBlocks.forEach((tileKey, indexMap) -> {
-                    if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !(boolean) indexMap.get("isPlaced")) {
-                        Map<String, Material> blockMap = (Map<String, Material>) indexMap.get("blocks");
+                    if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !indexMap.isPlaced()) {
                         System.out.println("[DEBUG] Placing blocks for secondary tile: " + tileKey);
                         // Avoid long filenames in HUD; keep it tidy.
-                        notifyProgress(playerUUID, 94, "Placing blocks …");
-                        placeBlocks(world, blockMap, yOffset.get());
-                        indexMap.put("isPlaced", true);
+                        notifyProgress(playerUUID, 94, "Placing blocks ...");
+                        placeBlocks(world, indexMap.voxels(), yOffset.get());
+                        indexMap.markPlaced();
                     }
-                });                
+                });
 
                 System.out.println("[DEBUG] Chunk regeneration completed.");
                 if (isVisit) {
-                    notifyProgress(playerUUID, 98, "Teleporting …");
+                    notifyProgress(playerUUID, 98, "Teleporting â€¦");
                 } else {
-                    // Movement loads shouldn't get stuck—settle on Idle.
+                    // Movement loads shouldn't get stuckâ€”settle on Idle.
                     notifyProgress(playerUUID, 0, "Idle");
                 }
                 callback.accept(blockLocation);
@@ -873,119 +871,54 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         });
     }
 
-    private void placeBlocks(World world, Map<String, Material> blockMap, int yOffset) {
-        if (faweAvailable) {
-            if (placeBlocksWithFaweReflect(world, blockMap, yOffset)) return;
-            System.out.println("[DEBUG] FAWE reflect path failed or unavailable, falling back.");
+    private void placeBlocks(World world, List<Voxel> blockList, int yOffset) {
+        if (blockList == null || blockList.isEmpty()) {
+            return;
         }
-
-        // ---- Fallback: original BlockChanger path ----
-        fallbackPlaceBlocksWithBlockChanger(world, blockMap, yOffset);
+        if (faweAvailable && placeBlocksWithFaweSession(world, blockList, yOffset)) {
+            return;
+        }
+        fallbackPlaceBlocksWithBlockChanger(world, blockList, yOffset);
     }
 
-    @SuppressWarnings("unchecked")
-    private boolean placeBlocksWithFaweReflect(World world, Map<String, Material> blockMap, int yOffset) {
-        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
-        Object editSession = null;
-        try {
-            // Classes
-            Class<?> weClazz           = Class.forName("com.sk89q.worldedit.WorldEdit");
-            Class<?> bukkitAdapterCls  = Class.forName("com.sk89q.worldedit.bukkit.BukkitAdapter");
-            Class<?> sideEffectSetCls  = Class.forName("com.sk89q.worldedit.util.SideEffectSet");
-            Class<?> blockVector3Cls   = Class.forName("com.sk89q.worldedit.math.BlockVector3");
-            Class<?> editSessionCls    = Class.forName("com.sk89q.worldedit.EditSession");
-            Class<?> weWorldIface      = Class.forName("com.sk89q.worldedit.world.World");
-            Class<?> blockStateHolder  = Class.forName("com.sk89q.worldedit.world.block.BlockStateHolder");
-
-            // WorldEdit.getInstance()
-            Object we = weClazz.getMethod("getInstance").invoke(null);
-
-            // we.newEditSessionBuilder()
-            Object builder = weClazz.getMethod("newEditSessionBuilder").invoke(we);
-
-            // adapt World -> com.sk89q.worldedit.world.World
-            Object weWorld = bukkitAdapterCls
-                    .getMethod("adapt", org.bukkit.World.class)
-                    .invoke(null, world);
-
-            // builder.world(World)  <-- must use the DECLARED interface type, not BukkitWorld
-            builder.getClass().getMethod("world", weWorldIface).invoke(builder, weWorld);
-
-            // editSession = builder.build()
-            editSession = builder.getClass().getMethod("build").invoke(builder);
-
-            // Disable side-effects (mirrors physics=false). Some builds might not have this; try/catch.
-            try {
-                Object noneSE = sideEffectSetCls.getMethod("none").invoke(null);
-                editSessionCls.getMethod("setSideEffectApplier", sideEffectSetCls)
-                              .invoke(editSession, noneSE);
-            } catch (NoSuchMethodException ignored) {
-                // Older/newer variants may differ; safe to proceed without it.
-            }
-
-            // Prepare reflection handles used in the loop
-            java.lang.reflect.Method atMethod =
-                    blockVector3Cls.getMethod("at", int.class, int.class, int.class);
-
-            // setBlock(BlockVector3, BlockStateHolder<?>)  (holder is an interface; use declared type)
-            java.lang.reflect.Method setBlock =
-                    editSessionCls.getMethod("setBlock", blockVector3Cls, blockStateHolder);
-
-            java.lang.reflect.Method adaptBlockData =
-                    bukkitAdapterCls.getMethod("adapt", org.bukkit.block.data.BlockData.class);
-
-            // Place all blocks
-            for (Map.Entry<String, Material> e : blockMap.entrySet()) {
-                String[] parts = e.getKey().split(",");
-                int x = Integer.parseInt(parts[0]);
-                int y = Integer.parseInt(parts[1]) + yOffset;
-                int z = Integer.parseInt(parts[2]);
-
-                if (y < world.getMinHeight() || y >= world.getMaxHeight()) continue;
-
-                Material mat = e.getValue();
-                if (mat == null || !mat.isBlock()) {
-                    throw new IllegalArgumentException("Invalid block material: " + mat);
-                }
-
-                Object weVec = atMethod.invoke(null, x, y, z);
-                Object weStateHolder = adaptBlockData.invoke(null, mat.createBlockData());
-                setBlock.invoke(editSession, weVec, weStateHolder);
-
-                modifiedChunks.add(world.getChunkAt(x >> 4, z >> 4));
-            }
-
-            // Close/commit
-            try {
-                editSessionCls.getMethod("close").invoke(editSession);
-            } catch (NoSuchMethodException ignore) {}
-
-            // Match your previous behavior
-            updateLighting(world, modifiedChunks);
-            return true;
-        } catch (Throwable t) {
-            // Best-effort close if the builder already created a session
-            if (editSession != null) {
-                try {
-                    editSession.getClass().getMethod("close").invoke(editSession);
-                } catch (Throwable ignore) {}
-            }
-            System.out.println("[DEBUG] placeBlocksWithFaweReflect error: " + t);
+    private boolean placeBlocksWithFaweSession(World world, List<Voxel> blockList, int yOffset) {
+        if (world == null) {
             return false;
         }
+        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+        try (EditSession editSession = WorldEdit.getInstance()
+                .newEditSessionBuilder()
+                .world(BukkitAdapter.adapt(world))
+                .build()) {
+            for (Voxel voxel : blockList) {
+                int x = voxel.x();
+                int y = voxel.y() + yOffset;
+                int z = voxel.z();
+                if (y < world.getMinHeight() || y >= world.getMaxHeight()) {
+                    continue;
+                }
+                Material material = voxel.material();
+                if (material == null || !material.isBlock()) {
+                    continue;
+                }
+                BlockState state = BukkitAdapter.adapt(material.createBlockData());
+                editSession.setBlock(BlockVector3.at(x, y, z), state);
+                modifiedChunks.add(world.getChunkAt(x >> 4, z >> 4));
+            }
+        } catch (Throwable t) {
+            System.out.println("[DEBUG] placeBlocksWithFaweSession error: " + t);
+            return false;
+        }
+        updateLighting(world, modifiedChunks);
+        return true;
     }
 
-    private void fallbackPlaceBlocksWithBlockChanger(World world, Map<String, Material> blockMap, int yOffset) {
+    private void fallbackPlaceBlocksWithBlockChanger(World world, List<Voxel> blockList, int yOffset) {
         Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
-        for (Map.Entry<String, Material> blockEntry : blockMap.entrySet()) {
-            String[] parts = blockEntry.getKey().split(",");
-            int originalX = Integer.parseInt(parts[0]);
-            int originalY = Integer.parseInt(parts[1]);
-            int originalZ = Integer.parseInt(parts[2]);
-
-            int newX = originalX;
-            int newY = originalY + yOffset;
-            int newZ = originalZ;
+        for (Voxel voxel : blockList) {
+            int newX = voxel.x();
+            int newY = voxel.y() + yOffset;
+            int newZ = voxel.z();
 
             if (world == null) continue;
             if (newY < world.getMinHeight() || newY >= world.getMaxHeight()) continue;
@@ -998,7 +931,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             int localX = newX & 15;
             int localZ = newZ & 15;
 
-            Material material = blockEntry.getValue();
+            Material material = voxel.material();
             if (material == null || !material.isBlock()) {
                 throw new IllegalArgumentException("Invalid block material: " + material);
             }
@@ -1010,7 +943,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 false
             );
 
-            // Chunk refresh tracking (matches your prior behavior)
             modifiedChunks.add(world.getChunkAt(blockChunkX, blockChunkZ));
         }
         updateLighting(world, modifiedChunks);
@@ -1023,6 +955,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             int chunkZ = chunk.getZ();
             world.refreshChunk(chunkX, chunkZ);
         }
+    }
+
+    private static long encodeBlockKey(int x, int y, int z) {
+        long lx = ((long) x) & 0x3FFFFFFL;
+        long ly = ((long) y) & 0xFFFL;
+        long lz = ((long) z) & 0x3FFFFFFL;
+        return (lx << 38) | (lz << 12) | ly;
     }
 
     private static final double EARTH_RADIUS = 6378137.0;  
@@ -1051,7 +990,7 @@ int newOffsetZZ = oldOffsetZZ *0;//* 5; // 2345
 
 private static final double BLOCKS_PER_METER = 2.1;
 
-// So the inverse must be used when turning *blocks → meters* for lat/lng:
+// So the inverse must be used when turning *blocks â†’ meters* for lat/lng:
 private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER; // 0.476190476...
 private double metersPerChunk() {
     return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
@@ -1061,8 +1000,8 @@ public int[] computeIslandBaseFor(double lat, double lng) {
     int gNorth = (int)Math.floor((lat + 90.0)  / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
     int gEast  = (int)Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
 
-    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X ⇐ latitude (north/south)
-    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z ⇐ longitude (east/west)
+    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X â‡ latitude (north/south)
+    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z â‡ longitude (east/west)
     return new int[]{ baseChunkX, baseChunkZ };
 }
 
