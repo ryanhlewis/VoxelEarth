@@ -20,7 +20,6 @@ import java.util.function.BiConsumer;
 
 import java.io.InputStream;
 import java.awt.Color;
-import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.security.SecureRandom;
 // player
@@ -116,11 +115,21 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private double scaleY = scaleFactor;
     private double scaleZ = scaleFactor;
 
-    private static final String SESSION_DIR = "./session";
     private static final long CLEANUP_INTERVAL = TimeUnit.HOURS.toMillis(1); // 1 hour
 
     // Prefer FAWE when available; fall back to BlockChanger automatically.
     private final boolean faweAvailable = detectFawe();
+    private static final class VoxelizedTile {
+        final String tileId;
+        final JavaCpuVoxelizer.VoxelPayload payload;
+        final double[] translation;
+
+        VoxelizedTile(String tileId, JavaCpuVoxelizer.VoxelPayload payload, double[] translation) {
+            this.tileId = tileId;
+            this.payload = payload;
+            this.translation = (translation != null) ? Arrays.copyOf(translation, translation.length) : null;
+        }
+    }
 
     public VoxelChunkGenerator() {
         System.out.println("[DEBUG] VoxelChunkGenerator initialized");
@@ -129,8 +138,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         System.out.println("[DEBUG] Using a tile radius of 25 for single tile loading.");
 
         tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25); 
-        initializeSessionDirectory();
-        scheduleSessionCleanup();
         loadMaterialColors();
     }
 
@@ -260,39 +267,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         }
     }
 
-    private void initializeSessionDirectory() {
-        File sessionDir = new File(SESSION_DIR);
-        if (!sessionDir.exists()) {
-            sessionDir.mkdirs();
-        }
-        System.out.println("[DEBUG] Session directory initialized at: " + sessionDir.getAbsolutePath());
-    }
-
-    private void scheduleSessionCleanup() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(
-                Bukkit.getPluginManager().getPlugin("VoxelEarth"),
-                this::clearSessionDirectory,
-                CLEANUP_INTERVAL, CLEANUP_INTERVAL
-        );
-    }
-
-    private void clearSessionDirectory() {
-        System.out.println("[Session Cleanup] Clearing session directory...");
-        try {
-            Files.walk(Paths.get(SESSION_DIR))
-                    .filter(Files::isRegularFile)
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                            System.out.println("[Session Cleanup] Deleted: " + path);
-                        } catch (IOException e) {
-                            System.err.println("[Session Cleanup] Failed to delete: " + path);
-                        }
-                    });
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
     public void regenChunks(World world, 
                             double scaleX, double scaleY, double scaleZ, 
@@ -429,192 +403,136 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private void downloadAndProcessTiles(int chunkX, int chunkZ) {
         try {
             System.out.println("[DEBUG] Calling downloadTiles for single tile load at radius 25");
-            String outputDirectory = SESSION_DIR;
-
             System.out.println("[DEBUG] Set coordinates: lng=" + LNG_ORIGIN + ", lat=" + LAT_ORIGIN);
             tileDownloader.setCoordinates(LNG_ORIGIN, LAT_ORIGIN);
-
-            List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
-            Map<String, double[]> tileTranslations = new HashMap<>(tileDownloader.getTileTranslations());
-            System.out.println("[DEBUG] Downloaded tiles: " + downloadedTileFiles);
-
-            if (downloadedTileFiles.isEmpty()) {
+            List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
+            System.out.println("[DEBUG] Downloaded tiles: " + downloadedTiles.size());
+            if (downloadedTiles.isEmpty()) {
                 System.out.println("[DEBUG] No new tiles were downloaded.");
                 return;
             }
-
-            System.out.println("[DEBUG] Running voxelizer on downloaded tiles...");
-            runGpuVoxelizer(outputDirectory, downloadedTileFiles);
-
-            System.out.println("[DEBUG] Loading indexed JSON...");
-            loadIndexedJson(new File(outputDirectory), downloadedTileFiles, chunkX, chunkZ, tileTranslations);
+            List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, null);
+            ingestVoxelizedTiles(voxelTiles, chunkX, chunkZ, null);
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
 
-    private void runGpuVoxelizer(String directory, List<String> tileFiles) throws IOException, InterruptedException {
-        System.out.println("[DEBUG] runGpuVoxelizer started...");
-        int numThreads = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-
-        List<Future<?>> futures = new ArrayList<>();
-
-        for (String tileFileName : tileFiles) {
-            Future<?> future = executor.submit(() -> {
-                try {
-                    processVoxelizerFile(directory, tileFileName);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            });
-            futures.add(future);
+    private List<VoxelizedTile> voxelizeTiles(List<TileDownloader.TilePayload> tiles, UUID playerId) {
+        if (tiles == null || tiles.isEmpty()) return Collections.emptyList();
+        JavaCpuVoxelizer voxelizer = new JavaCpuVoxelizer(128, true, false);
+        List<VoxelizedTile> results = new ArrayList<>(tiles.size());
+        for (int i = 0; i < tiles.size(); i++) {
+            TileDownloader.TilePayload tile = tiles.get(i);
+            try {
+                JavaCpuVoxelizer.VoxelPayload payload = voxelizer.voxelizeToMemory(tile.tileId(), tile.glbBytes());
+                results.add(new VoxelizedTile(tile.tileId(), payload, tile.translation()));
+            } catch (Exception e) {
+                System.out.println("[WARN] Voxelizer failed for " + tile.tileId() + ": " + e.getMessage());
+                if (playerId != null) notifyProgress(playerId, -1, "Voxelizer failed for " + tile.tileId());
+            }
+            if (playerId != null) {
+                int pct = 55 + (int) Math.floor(15.0 * (i + 1) / Math.max(1, tiles.size()));
+                notifyProgress(playerId, pct, "Voxelized " + (i + 1) + "/" + tiles.size());
+            }
         }
+        return results;
+    }
 
+    private void ingestVoxelizedTiles(List<VoxelizedTile> voxelTiles, int chunkX, int chunkZ, UUID playerId) {
+        if (voxelTiles == null || voxelTiles.isEmpty()) return;
+        int numThreads = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), voxelTiles.size()));
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        AtomicInteger processed = new AtomicInteger(0);
+        List<Future<?>> futures = new ArrayList<>();
+        for (VoxelizedTile tile : voxelTiles) {
+            futures.add(executor.submit(() -> {
+                try {
+                    processVoxelizedTile(tile, chunkX, chunkZ);
+                } catch (Exception e) {
+                    System.out.println("[DEBUG] Error loading voxel tile " + tile.tileId + ": " + e.getMessage());
+                } finally {
+                    if (playerId != null) {
+                        int now = processed.incrementAndGet();
+                        int pct = 72 + (int) Math.floor(13.0 * now / Math.max(1, voxelTiles.size()));
+                        notifyProgress(playerId, pct, "Indexed " + now + "/" + voxelTiles.size());
+                    }
+                }
+            }));
+        }
         for (Future<?> future : futures) {
             try {
                 future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
+            } catch (InterruptedException | ExecutionException ignored) {}
+        }
+        executor.shutdown();
+    }
+
+    private void processVoxelizedTile(VoxelizedTile tile, int chunkX, int chunkZ) {
+        double[] rawTranslation = tile.translation;
+        double[] tileTranslation = new double[3];
+        boolean hasRawTranslation = rawTranslation != null && rawTranslation.length >= 3;
+        if (hasRawTranslation) {
+            tileTranslation[0] = (rawTranslation[0] * scaleX) + offsetX + (chunkX * 16);
+            tileTranslation[1] = (rawTranslation[1] * scaleY) + offsetY;
+            tileTranslation[2] = (rawTranslation[2] * scaleZ) + offsetZ + (chunkZ * 16);
+            System.out.println("[DEBUG] Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
+        }
+
+        Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
+        for (Map.Entry<Integer, int[]> entry : tile.payload.palette().entrySet()) {
+            colorIndexToMaterial.put(entry.getKey(), mapRgbaToMaterial(entry.getValue()));
+        }
+
+        Map<String, Material> blockMap = new HashMap<>();
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+
+        for (int[] xyzi : tile.payload.xyzi()) {
+            int x = xyzi[0];
+            int y = xyzi[1];
+            int z = xyzi[2];
+            int colorIndex = xyzi[3];
+
+            int translatedX = (int) Math.round(x + tileTranslation[0]);
+            int translatedY = (int) Math.round(y + tileTranslation[1]);
+            int translatedZ = (int) Math.round(z + tileTranslation[2]);
+
+            String blockName = translatedX + "," + translatedY + "," + translatedZ;
+            Material material = colorIndexToMaterial.get(colorIndex);
+            if (material != null) {
+                blockMap.put(blockName, material);
+                if (translatedX < minX) minX = translatedX;
+                if (translatedY < minY) minY = translatedY;
+                if (translatedZ < minZ) minZ = translatedZ;
+                if (translatedX > maxX) maxX = translatedX;
+                if (translatedY > maxY) maxY = translatedY;
+                if (translatedZ > maxZ) maxZ = translatedZ;
             }
         }
 
-        executor.shutdown();
-        System.out.println("[DEBUG] runGpuVoxelizer completed.");
+        HashMap<String, Object> indexMap = new HashMap<>();
+        indexMap.put("isPlaced", false);
+        indexMap.put("blocks", blockMap);
+        indexedBlocks.putIfAbsent(tile.tileId, indexMap);
+        System.out.println("[DEBUG] Loaded tile: " + tile.tileId + " with " + blockMap.size() + " blocks.");
+        System.out.println("[DEBUG] Block bounding box for " + tile.tileId + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
     }
-
-    // Overload with live progress (60–70%)
-    private void runGpuVoxelizer(String directory, List<String> tileFiles, UUID playerId) throws IOException, InterruptedException {
-        int total = Math.max(1, tileFiles.size());
-        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(0);
-        notifyProgress(playerId, 60, "Voxelizing " + total + " tile(s) …");
-        int numThreads = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        java.util.List<Future<?>> futures = new java.util.ArrayList<>();
-        for (String tileFileName : tileFiles) {
-            Future<?> future = executor.submit(() -> {
-                try {
-                    processVoxelizerFile(directory, tileFileName);
-                } catch (Exception e) {
-                    notifyProgress(playerId, -1, "Voxelizer failed: " + e.getMessage());
-                } finally {
-                    int finished = done.incrementAndGet();
-                    int pct = 60 + (int) Math.floor(10.0 * finished / total); // 60–70%
-                    notifyProgress(playerId, pct, "Voxelizing " + finished + "/" + total);
-                }
-            });
-            futures.add(future);
-        }
-        for (Future<?> f : futures) {
-            try { f.get(); } catch (Exception ignored) {}
-        }
-        executor.shutdown();
-        notifyProgress(playerId, 70, "Voxelization complete");
-    }
-
-
-    /** Return true if the CUDA binary exists and is executable on this platform. */
-    private boolean hasCudaBinary() {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            System.out.println("[DEBUG] Skipping CUDA voxelizer: unsupported on Windows.");
-            return false;
-        }
-        File exe = new File("./cuda_voxelizer");
-        if (!exe.exists()) return false;
-        if (!exe.canExecute()) {
-            System.out.println("[DEBUG] cuda_voxelizer exists but is not executable. Falling back to CPU.");
-            return false;
-        }
-        return true;
-    }
-
-    /** Run the CPU voxelizer for one GLB -> writes <base>_128.json and <base>_position.json. */
-    private void runCpuVoxelizer(String directory, File glbFile, int grid, boolean tiles3d) {
-        try {
-            JavaCpuVoxelizer vox = new JavaCpuVoxelizer(grid, tiles3d, /*verbose*/ false);
-            vox.voxelizeSingleGLB(glbFile, new File(directory));
-        } catch (Throwable t) {
-            throw new RuntimeException("CPU voxelizer failed for " + glbFile.getName() + ": " + t.getMessage(), t);
-        }
-    }
-
-    private void processVoxelizerFile(String directory, String tileFileName) throws IOException, InterruptedException {
-        final int grid = 128;
-        File glb = new File(directory, tileFileName);
-        String baseName = glb.getName();
-        // ⬇️ minimal tweak: CUDA writes <base-without-.glb>_128.json
-        String baseNoExt = baseName.replaceFirst("\\.glb(?:\\..*)?$", "");
-        File outputJson = new File(directory, baseNoExt + "_" + grid + ".json");
-
-        if (outputJson.exists()) {
-            System.out.println("[DEBUG] Skipping voxelization, " + outputJson.getName() + " already exists.");
-            return;
-        }
-
-        System.out.println("[DEBUG] Running voxelizer on " + glb.getName());
-
-        // Try CUDA first if the binary is present
-        boolean triedGpu = false;
-        int exitCode = -999;
-        if (hasCudaBinary()) {
-            triedGpu = true;
-            try {
-                ProcessBuilder pb = new ProcessBuilder(
-                        "./cuda_voxelizer",
-                        "-f", glb.getAbsolutePath(),
-                        "-o", "json",
-                        "-s", Integer.toString(grid),
-                        "-3dtiles",
-                        "-output", directory
-                );
-                pb.directory(new File(System.getProperty("user.dir")));
-                pb.redirectErrorStream(true);
-
-                Process p = pb.start();
-                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
-                    while (r.readLine() != null) { /* swallow */ }
-                }
-                exitCode = p.waitFor();
-            } catch (IOException ioe) {
-                System.out.println("[WARN] Failed to launch cuda_voxelizer: " + ioe.getMessage());
-                exitCode = -1;
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                System.out.println("[WARN] cuda_voxelizer interrupted: " + ie.getMessage());
-                exitCode = -1;
-            }
-        }
-
-        if (triedGpu && exitCode == 0 && outputJson.exists()) {
-            System.out.println("[DEBUG] Voxelization completed (GPU): " + outputJson.getName());
-            return;
-        }
-
-        if (triedGpu) {
-            System.out.println("[WARN] CUDA voxelizer failed (code " + exitCode + ") or did not produce output. Falling back to CPU …");
-        } else {
-            System.out.println("[INFO] CUDA voxelizer not found. Using CPU fallback …");
-        }
-
-        // CPU fallback: writes the same <base>_128.json your loader expects
-        runCpuVoxelizer(directory, glb, grid, /*tiles3d*/ true);
-
-        if (!outputJson.exists()) {
-            throw new RuntimeException("CPU voxelizer did not produce " + outputJson.getName());
-        }
-        System.out.println("[DEBUG] Voxelization completed (CPU): " + outputJson.getName());
-    }
-
 
 
     private static final double MAX_COLOR_DISTANCE = 30.0;
     private Map<Integer, Material> colorIndexToMaterialCache = new HashMap<>();
 
     private Material mapRgbaToMaterial(JSONArray rgbaArray) {
-        int r = rgbaArray.getInt(0);
-        int g = rgbaArray.getInt(1);
-        int b = rgbaArray.getInt(2);
+        return mapRgbaToMaterial(rgbaArray.getInt(0), rgbaArray.getInt(1), rgbaArray.getInt(2));
+    }
+
+    private Material mapRgbaToMaterial(int[] rgba) {
+        if (rgba == null || rgba.length < 3) return Material.STONE;
+        return mapRgbaToMaterial(rgba[0], rgba[1], rgba[2]);
+    }
+
+    private Material mapRgbaToMaterial(int r, int g, int b) {
 
         Color voxelColor = new Color(r, g, b);
         double[] voxelLab = ColorUtils.rgbToLab(voxelColor);
@@ -646,188 +564,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         int dg = c1.getGreen() - c2.getGreen();
         int db = c1.getBlue() - c2.getBlue();
         return Math.sqrt(dr * dr + dg * dg + db * db);
-    }
-
-    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, Map<String, double[]> tileTranslations) throws IOException {
-        System.out.println("[DEBUG] loadIndexedJson called. Loading tiles into memory.");
-        if (tileFiles == null || tileFiles.isEmpty()) {
-            System.out.println("[DEBUG] No tile files provided.");
-            return;
-        }
-
-        int numThreads = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        List<Future<?>> futures = new ArrayList<>();
-
-        for (String tileFileName : tileFiles) {
-            String baseName = tileFileName.replaceFirst("\\.glb.*$", "");
-            File jsonFile = new File(directory, baseName + "_128.json");
-
-            if (indexedBlocks.containsKey(baseName)) {
-                continue;
-            }
-
-            Future<?> future = executor.submit(() -> {
-                try {
-                    double[] translation = tileTranslations != null ? tileTranslations.get(tileFileName) : null;
-                    double[] translationCopy = translation != null ? Arrays.copyOf(translation, translation.length) : null;
-                    processJsonFile(jsonFile, baseName, chunkX, chunkZ, translationCopy);
-                } catch (Exception e) {
-                    System.out.println("[DEBUG] Error loading JSON file: " + jsonFile.getName());
-                    e.printStackTrace();
-                }
-            });
-            futures.add(future);
-        }
-
-        for (Future<?> future : futures) {
-            try {
-                future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
-            }
-        }
-
-        executor.shutdown();
-        System.out.println("[DEBUG] Finished loadIndexedJson.");
-    }
-
-    // Overload with live progress (72–85%)
-    private void loadIndexedJson(File directory, List<String> tileFiles, int chunkX, int chunkZ, UUID playerId, Map<String, double[]> tileTranslations) throws IOException {
-        int total = Math.max(1, tileFiles.size());
-        java.util.concurrent.atomic.AtomicInteger processed = new java.util.concurrent.atomic.AtomicInteger(0);
-        notifyProgress(playerId, 72, "Indexing voxels …");
-        int numThreads = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        java.util.List<Future<?>> futures = new java.util.ArrayList<>();
-        for (String tileFileName : tileFiles) {
-            String baseName = tileFileName.replaceFirst("\\.glb.*$", "");
-            File jsonFile = new File(directory, baseName + "_128.json");
-            if (indexedBlocks.containsKey(baseName)) continue;
-            Future<?> future = executor.submit(() -> {
-                try {
-                    double[] translation = tileTranslations != null ? tileTranslations.get(tileFileName) : null;
-                    double[] translationCopy = translation != null ? Arrays.copyOf(translation, translation.length) : null;
-                    processJsonFile(jsonFile, baseName, chunkX, chunkZ, translationCopy);
-                } catch (Exception e) {
-                    notifyProgress(playerId, -1, "Indexing failed: " + e.getMessage());
-                } finally {
-                    int now = processed.incrementAndGet();
-                    int pct = 72 + (int) Math.floor(13.0 * now / total); // 72–85%
-                    notifyProgress(playerId, pct, "Indexed " + now + "/" + total);
-                }
-            });
-            futures.add(future);
-        }
-        for (Future<?> f : futures) {
-            try { f.get(); } catch (Exception ignored) {}
-        }
-        executor.shutdown();
-        notifyProgress(playerId, 85, "Indexing complete");
-    }
-
-    private void processJsonFile(File jsonFile, String baseName, int chunkX, int chunkZ, double[] rawTranslation) throws IOException {
-        System.out.println("[DEBUG] processJsonFile: " + jsonFile.getName());
-        try (FileReader reader = new FileReader(jsonFile)) {
-            JSONObject json = new JSONObject(new JSONTokener(reader));
-
-            double rawX = 0.0;
-            double rawY = 0.0;
-            double rawZ = 0.0;
-            boolean hasRawTranslation = false;
-
-            if (rawTranslation != null && rawTranslation.length >= 3) {
-                rawX = rawTranslation[0];
-                rawY = rawTranslation[1];
-                rawZ = rawTranslation[2];
-                hasRawTranslation = true;
-                System.out.println("[DEBUG] Using TileDownloader translation for " + baseName + ": (" + rawX + ", " + rawY + ", " + rawZ + ")");
-            } else {
-                File positionFile = new File(jsonFile.getParent(), baseName.replaceFirst("\\.glb.*$", "") + "_position.json");
-                if (positionFile.exists()) {
-                    try (FileReader posReader = new FileReader(positionFile)) {
-                        JSONArray positionArray = new JSONArray(new JSONTokener(posReader));
-                        if (positionArray.length() > 0) {
-                            JSONObject positionData = positionArray.getJSONObject(0);
-                            JSONArray translationArray = positionData.getJSONArray("translation");
-                            rawX = translationArray.getDouble(0);
-                            rawY = translationArray.getDouble(1);
-                            rawZ = translationArray.getDouble(2);
-                            hasRawTranslation = true;
-                            System.out.println("[DEBUG] Fallback positionFile: " + positionFile.getName());
-                        }
-                    }
-                } else {
-                    System.out.println("[DEBUG] No translation data for: " + baseName + " (no CLI data and no position file)");
-                }
-            }
-
-            double[] tileTranslation = new double[3];
-            if (hasRawTranslation) {
-                tileTranslation[0] = (rawX * scaleX) + offsetX + (chunkX * 16);
-                tileTranslation[1] = (rawY * scaleY) + offsetY;
-                tileTranslation[2] = (rawZ * scaleZ) + offsetZ + (chunkZ * 16);
-                System.out.println("[DEBUG] Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
-            }
-
-            if (!json.has("blocks") || !json.has("xyzi")) {
-                System.out.println("[DEBUG] JSON missing 'blocks' or 'xyzi' for " + baseName);
-                return;
-            }
-
-            JSONObject blocksObject = json.getJSONObject("blocks");
-            JSONArray xyziArray = json.getJSONArray("xyzi");
-            Map<String, Material> blockMap = new HashMap<>();
-
-            Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
-            Iterator<String> keys = blocksObject.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                int colorIndex = Integer.parseInt(key);
-                JSONArray rgbaArray = blocksObject.getJSONArray(key);
-
-                Material material = mapRgbaToMaterial(rgbaArray);
-                colorIndexToMaterial.put(colorIndex, material);
-            }
-
-            int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
-            int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-
-            for (int i = 0; i < xyziArray.length(); i++) {
-                JSONArray xyziEntry = xyziArray.getJSONArray(i);
-                int x = xyziEntry.getInt(0);
-                int y = xyziEntry.getInt(1);
-                int z = xyziEntry.getInt(2);
-                int colorIndex = xyziEntry.getInt(3);
-
-                int translatedX = (int)Math.round(x + tileTranslation[0]);
-                int translatedY = (int)Math.round(y + tileTranslation[1]);
-                int translatedZ = (int)Math.round(z + tileTranslation[2]);
-
-                String blockName = translatedX + "," + translatedY + "," + translatedZ;
-                Material material = colorIndexToMaterial.get(colorIndex);
-
-                if (material != null) {
-                    blockMap.put(blockName, material);
-
-                    if (translatedX < minX) minX = translatedX;
-                    if (translatedY < minY) minY = translatedY;
-                    if (translatedZ < minZ) minZ = translatedZ;
-                    if (translatedX > maxX) maxX = translatedX;
-                    if (translatedY > maxY) maxY = translatedY;
-                    if (translatedZ > maxZ) maxZ = translatedZ;
-                }
-            }
-
-            HashMap<String, Object> indexMap = new HashMap<>();
-            indexMap.put("isPlaced", false);
-            indexMap.put("blocks", blockMap);
-
-            indexedBlocks.putIfAbsent(baseName, indexMap);
-
-            System.out.println("[DEBUG] Loaded tile: " + baseName + " with " + blockMap.size() + " blocks.");
-            System.out.println("[DEBUG] Block bounding box for " + baseName + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
-        }
     }
 
     public void loadJson(String filename, double scaleX, double scaleY, double scaleZ, double offsetX, double offsetY, double offsetZ) throws IOException {
@@ -978,8 +714,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 int[] blockLocation = new int[]{210, 70, 0};
 
-                String outputDirectory = SESSION_DIR;
-
                 double[] latLng = minecraftToLatLng(playerUUID, tileX, tileZ);
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
@@ -991,20 +725,24 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
                 notifyProgress(playerUUID, 20, "Downloading tiles …");
-                List<String> downloadedTileFiles = tileDownloader.downloadTiles(outputDirectory);
-                Map<String, double[]> tileTranslations = new HashMap<>(tileDownloader.getTileTranslations());
-                System.out.println("[DEBUG] Downloaded tile files: " + downloadedTileFiles);
+                List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
+                System.out.println("[DEBUG] Downloaded tile payloads: " + downloadedTiles.size());
 
-                if (downloadedTileFiles.isEmpty()) {
+                if (downloadedTiles.isEmpty()) {
                     System.out.println("[DEBUG] No tiles downloaded.");
                     notifyProgress(playerUUID, -1, "No tiles available for this area.");
                     callback.accept(blockLocation);
                     return;
                 }
 
-                System.out.println("[DEBUG] Running voxelizer for single tile...");
+                System.out.println("[DEBUG] Running voxelizer for in-memory tiles...");
                 notifyProgress(playerUUID, 55, "Preparing voxelizer …");
-                runGpuVoxelizer(outputDirectory, downloadedTileFiles, playerUUID);
+                List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, playerUUID);
+                if (voxelTiles.isEmpty()) {
+                    notifyProgress(playerUUID, -1, "Voxelization failed.");
+                    callback.accept(blockLocation);
+                    return;
+                }
 
                 Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
 
@@ -1023,7 +761,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     System.out.println("[DEBUG] Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
                 }
 
-                loadIndexedJson(new File(outputDirectory), downloadedTileFiles, adjustedTileX, adjustedTileZ, playerUUID, tileTranslations);
+                ingestVoxelizedTiles(voxelTiles, adjustedTileX, adjustedTileZ, playerUUID);
                 Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
                 currentKeys.removeAll(previousKeys);
 

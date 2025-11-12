@@ -17,9 +17,8 @@ Moved to [Web Client](https://github.com/voxelearth/web-client) repository.
 This will voxelize and render 3D Tiles all in your browser.
 
 #### Minecraft
-We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. The plugin should work on Windows and Linux, but needs some weird setup since it uses Python and NodeJS. **(Linux / NVIDIA GPU Voxelizer is optional, but will make it faster.)** 
-
-To make it easier, we have made bash scripts that handle Node/Python dependencies.
+We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. The plugin should work on Windows, Linux, and Mac, and supports no GPU. Note that you should NOT run this plugin on an existing Minecraft world! It spawns in gigantic mega-structures. Use a fresh world / server!
+To make it easier, we have made bash scripts that auto-setup new servers.
 
 The fastest setup for Linux is:
 ```
@@ -34,14 +33,9 @@ cd dynamicloader
 ./setupsingle.bat
 ```
 
-For those who prefer to do it barebones without a zipfile- install Ubuntu from the Microsoft Store and inside of it, paste:
+For those who prefer to do it barebones:
 
 ```bash
-# Install Java and Maven
-sudo apt update
-sudo apt install -y openjdk-11-jdk maven python3 python3-pip nodejs npm
-
-# Create server
 mkdir -p ~/paper-server
 cd ~/paper-server
 wget https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar -O paper.jar
@@ -50,10 +44,6 @@ wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/Intellec
 echo "eula=true" > eula.txt
 git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
 cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
-# Optional GPU voxelizer, if left out, plugin falls back to CPU
-chmod 777 cuda_voxelizer
-cd scripts
-npm install
 cd ..
 ```
 Now, the server can run easily using:
@@ -97,9 +87,9 @@ Our overall goal is to make an interactive Earth accessible in Minecraft. Curren
 
 [ ✔‌ ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
 
-[ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. 
+[ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. Unclear if this is needed anymore with the In-Memory (no storage IO) patch.
 
-[ ‌ ] **Collapse NodeJS dependency**: We have external reliance on NodeJS (Draco decompression + rotation). Porting these to be inside the Java would be better to allow the plugin to just be a single jarfile- but NodeJS is super fast for massively parallel downloading + Draco decompression + GLB rotation! Would need to benchmark!
+[ ✔‌‌ ] **Collapse NodeJS dependency**: We have external reliance on NodeJS (Draco decompression + rotation). Porting these to be inside the Java would be better to allow the plugin to just be a single jarfile- but NodeJS is super fast for massively parallel downloading + Draco decompression + GLB rotation! Would need to benchmark!
 
 ### Developing
 **CPU Voxelization:**\
@@ -108,90 +98,11 @@ Supported and works across the board. Used as a fallback when `cuda_voxelizer` i
 To edit the CPU voxelizer, please test against our [CLI Jarfile](https://github.com/voxelearth/java-cpu-voxelizer) for much faster and easier development! After making your optimizations, feel free to drop your changes into the `JavaCpuVoxelizer.java` class in the plugin and open a pull request!
 
 **GPU Voxelization:**\
-*(Currently Linux-only / WSL2)*\
-For GPU voxelization, you'll need to install the CUDA toolkit and ensure your system has a NVIDIA GPU. We recommend [WSL2 copy-paste commands from NVIDIA](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local).
-
-If you end up needing to setup NVIDIA drivers- make sure to run these commands after using theirs.
-   ```bash
-export PATH=/usr/local/cuda/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-
-source ~/.bashrc
-nvcc --version
-   ```
-NVCC should print a version if installed correctly.
-
-**Locating Files**: First, let's copy trimesh2 and cuda_voxelizer directly to home for our Makefiles direct reference.
-```bash
-cp -r ~/voxelearth/trimesh2/ ~
-cp -r ~/voxelearth/cuda_voxelizer/ ~
-```
-And we'll also need to install some libraries for Trimesh2 to build correctly.
-```bash
-sudo apt install libgl-dev
-sudo apt install libglu-dev
-sudo apt install libxi-dev
-```
-
-
-1. **Google Draco**: First, create a [Google Draco](https://github.com/google/draco) build for compression:
-   ```bash
-   cd ~
-   git clone https://github.com/google/draco.git
-   cd draco
-   mkdir build
-   cd build
-   cmake ..
-   make
-
-   cp -r ~/draco/src/draco ~/trimesh2/include/
-   cp -r ~/draco/build/draco/* ~/trimesh2/include/draco/
-   ```
-   
-2. **Trimesh2**: First, we have to set up the primary dependency of cuda_voxelizer:
-   ```bash
-   cd trimesh2
-   chmod 777 copyFiles.sh
-   ./copyFiles.sh
-   ```
-   This script will automatically build and copy Trimesh2 files directly for cuda_voxelizer.
-
-3. **cuda_voxelizer**: Finally, to set up our GPU voxelizer, follow these steps:
-   ```bash
-   cd cuda_voxelizer
-   chmod 777 build.sh
-   ./build.sh
-   ```
-   This will build the voxelizer and place it in the `cuda_voxelizer/build` directory.
-   You can run it via..
-   ```bash 
-   chmod 777 build/cuda_voxelizer
-   ./build/cuda_voxelizer
-   ```
-
-4. **Run test voxelizer**: Use the produced binary to debug and test voxelization.
-   ```bash
-   ./build/cuda_voxelizer -f myfile.glb -s 64 -o glb
-   # Or, if you want to try out JSON for Minecraft
-   ./build/cuda_voxelizer -f myfile.glb -s 64 -o json
-   ```
-   Remember - if you copy the binary to another folder you may have to fix the permissions again via chmod 777.
-
-If there's any problems with the voxelization that need to be fixed, the following files are likely the culprits:
-   
-   [**voxelize.cu**](cuda_voxelizer/src/voxelize.cu): This is the main CUDA shader file that handles the voxelization and color assignment process. It is passed variables from [**main.cpp**](cuda_voxelizer/src/main.cpp). Any issues with the voxelization or textures will be found here. "Segmentation faults" will always be found here. 
-   
-   [**util_io.cpp**](cuda_voxelizer/src/util_io.cpp): This is the export script for the voxelizer. Any issues with exporting the voxelized GLB will be found here as well as any future support for other formats like Minecraft JSON or Schematic.
-
-   [**TriMesh_io.cc**](trimesh2/libsrc/TriMesh_io.cc): Our ad-hoc implementation of importing GLTF files and extracting their textures into the voxelizer. Any issues with the GLTF format or importing will be found here.
+Deprecated in favor of a single Jarfile plugin with no external dependencies. Benchmarks revealed that the time spent voxelizing in GPU was hindered by the large storage IO overhead of writing everything to disk twice to transfer to and from the Java plugin. GPU Voxelization should be reintroduced as Java-memory only in the future.
 
 #### Minecraft
-To develop or run our Minecraft plugin, note you MUST be in WSL2-Ubuntu, and run the following:
+To help develop our Minecraft plugin,
 ```bash
-# Install Java and Maven
-sudo apt update
-sudo apt install -y openjdk-11-jdk maven python3 python3-pip nodejs npm
-
 # Create server
 mkdir -p ~/paper-server
 cd ~/paper-server
@@ -201,9 +112,6 @@ wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/Intellec
 echo "eula=true" > eula.txt
 git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
 cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
-chmod 777 cuda_voxelizer
-cd scripts
-npm install
 cd ..
 ```
 
@@ -230,17 +138,17 @@ This project includes modified versions of the following libraries:
    - **Original Repository**: [ObjToSchematic](https://github.com/LucasDower/ObjToSchematic)
    - **Modifications**: Deprecated in favor of custom 2.5D Scan CPU voxelization. Originally enhanced voxelization pipeline to ingest GLTF files via THREE.js.
 
-2. **cuda_voxelizer by ForceFlow**
+2. **cuda_voxelizer by ForceFlow** (deprecated, removed)
    - **Original Repository**: [cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) + [TriMesh2](https://github.com/Forceflow/TriMesh2)
-   - **Modifications**: Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back to CPU if not present.
+   - **Modifications**: Deprecated as the storage IO was too high. Should add back compiled Java link or binary in the future. Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back to CPU if not present.
 
-3. **google-earth-as-gltf by Omar Shehata**
+3. **google-earth-as-gltf by Omar Shehata** (for web-client)
    - **Original Repository**: [google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)
    - **Modifications**: Adapted for integration with voxelization pipeline via proxy, used for front-end visualization and navigation.
 
-4. **3dtiles-dl by Lukas Lao Beyer**
+4. **3dtiles-dl by Lukas Lao Beyer** (Java implementation)
    - **Original Repository**: [3dtiles-dl](https://github.com/lukaslaobeyer/3dtiles-dl)
-   - **Modifications**: Converted to NodeJS. Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
+   - **Modifications**: Converted to Java. Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
 
 All original library code is licensed under their respective licenses. See individual LICENSE files in each modified library directory for more details.
 

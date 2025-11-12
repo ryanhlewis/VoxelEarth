@@ -70,86 +70,244 @@ public final class JavaCpuVoxelizer {
         }
     }
 
-    public Stats voxelizeSingleGLB(File glbFile, File outDir) throws Exception {
-        if (verbose) System.out.println("[Load] " + glbFile.getAbsolutePath());
-        LoaderResult lr = GltfReader.loadTrianglesAndGlobalTexture(glbFile);
-        if (lr.triCount == 0) throw new IllegalStateException("No triangles in " + glbFile);
+    public static final class VoxelPayload {
+        private final String tileId;
+        private final Map<Integer, int[]> palette;
+        private final List<int[]> xyzi;
+        private final int grid;
+        private final int triangles;
+        private final int filled;
 
-        // --- compute bbox in object coords (no node transforms), then 3D-Tiles rect → cube; unit, translation ---
-        Aabb baseBox = Aabb.fromTrisObj(lr.vx0, lr.vy0, lr.vz0, lr.vx1, lr.vy1, lr.vz1, lr.vx2, lr.vy2, lr.vz2, lr.triCount);
-        Aabb rect = tiles3d ? Aabb.tileAroundCenter(baseBox, TILE_X, TILE_Y, TILE_Z) : baseBox;
-        Aabb cube = rect.toCube();
-        if (verbose) {
-            System.out.printf(Locale.ROOT, "[BBox] tiles=%s cube min=(%.6f,%.6f,%.6f) max=(%.6f,%.6f,%.6f)%n",
-                    String.valueOf(tiles3d), cube.minx, cube.miny, cube.minz, cube.maxx, cube.maxy, cube.maxz);
+        VoxelPayload(String tileId,
+                     Map<Integer, int[]> palette,
+                     List<int[]> xyzi,
+                     int grid,
+                     int triangles,
+                     int filled) {
+            this.tileId = tileId;
+            this.palette = Collections.unmodifiableMap(palette);
+            this.xyzi = Collections.unmodifiableList(xyzi);
+            this.grid = grid;
+            this.triangles = triangles;
+            this.filled = filled;
         }
+
+        public String tileId() { return tileId; }
+        public Map<Integer, int[]> palette() { return palette; }
+        public List<int[]> xyzi() { return xyzi; }
+        public int grid() { return grid; }
+        public int triangles() { return triangles; }
+        public int filled() { return filled; }
+    }
+
+    private static final class VoxelComputation {
+        final String baseName;
+        final BitSet occ;
+        final int[] colors;
+        final int ox, oy, oz;
+        final int triangles;
+        final int filled;
+
+        VoxelComputation(String baseName,
+                         BitSet occ,
+                         int[] colors,
+                         int ox,
+                         int oy,
+                         int oz,
+                         int triangles,
+                         int filled) {
+            this.baseName = baseName;
+            this.occ = occ;
+            this.colors = colors;
+            this.ox = ox;
+            this.oy = oy;
+            this.oz = oz;
+            this.triangles = triangles;
+            this.filled = filled;
+        }
+    }
+
+    public Stats voxelizeSingleGLB(File glbFile, File outDir) throws Exception {
+
+        if (verbose) System.out.println("[Load] " + glbFile.getAbsolutePath());
+
+        LoaderResult lr = GltfReader.loadTrianglesAndGlobalTexture(glbFile);
+
+        VoxelComputation comp = computeVoxelData(baseName(glbFile), lr);
+
+        File jsonOut = new File(outDir, comp.baseName + "_" + grid + ".json");
+
+        emitJSON(jsonOut, comp.colors, comp.occ, grid, comp.ox, comp.oy, comp.oz);
+
+        return new Stats(comp.baseName, grid, comp.triangles, comp.filled, comp.ox, comp.oy, comp.oz);
+
+    }
+
+    public VoxelPayload voxelizeToMemory(String tileId, byte[] glbBytes) throws Exception {
+
+        if (verbose) System.out.println("[Load] <memory> " + tileId);
+
+        LoaderResult lr = GltfReader.loadTrianglesAndGlobalTexture(glbBytes);
+
+        VoxelComputation comp = computeVoxelData(tileId, lr);
+
+        return buildPayload(comp);
+
+    }
+
+
+
+    private VoxelComputation computeVoxelData(String label, LoaderResult lr) throws Exception {
+
+        if (lr.triCount == 0) throw new IllegalStateException("No triangles in " + label);
+
+        Aabb baseBox = Aabb.fromTrisObj(lr.vx0, lr.vy0, lr.vz0, lr.vx1, lr.vy1, lr.vz1, lr.vx2, lr.vy2, lr.vz2, lr.triCount);
+
+        Aabb rect = tiles3d ? Aabb.tileAroundCenter(baseBox, TILE_X, TILE_Y, TILE_Z) : baseBox;
+
+        Aabb cube = rect.toCube();
+
+        if (verbose) {
+
+            System.out.printf(Locale.ROOT, "[BBox] tiles=%s cube min=(%.6f,%.6f,%.6f) max=(%.6f,%.6f,%.6f)%n",
+
+                    String.valueOf(tiles3d), cube.minx, cube.miny, cube.minz, cube.maxx, cube.maxy, cube.maxz);
+
+        }
+
         float maxDim = Math.max(Math.max(cube.maxx - cube.minx, cube.maxy - cube.miny), (cube.maxz - cube.minz));
+
         float unit = maxDim / (float) grid;
+
         if (unit <= 0) throw new IllegalStateException("Non-positive unit");
-        if (verbose) System.out.printf(Locale.ROOT, "[Grid] %d³  unit=%.6f%n", grid, unit);
+
+        if (verbose) System.out.printf(Locale.ROOT, "[Grid] %d^3  unit=%.6f%n", grid, unit);
 
         int ox = Math.round((-cube.minx) / unit);
+
         int oy = Math.round((-cube.miny) / unit);
+
         int oz = Math.round((-cube.minz) / unit);
 
-        // --- transform triangles into voxel space (unit=1.0) ---
         VoxelTriSOA soa = VoxelTriSOA.fromObjectSpace(lr, cube, unit);
 
-        // --- bin triangles to z-slabs (by voxel-space z range) ---
         int slabH = Math.min(SLAB_HEIGHT, Math.max(1, grid));
+
         int slabCount = (grid + slabH - 1) / slabH;
 
-        @SuppressWarnings("unchecked")
         IntArray[] slabBins = new IntArray[slabCount];
-        for (int s = 0; s < slabCount; ++s) slabBins[s] = new IntArray(1024);
 
-        for (int i = 0; i < soa.n; ++i) {
-            int z0 = clamp((int) Math.floor(Math.min(Math.min(soa.z0[i], soa.z1[i]), soa.z2[i])), 0, grid - 1);
-            int z1 = clamp((int) Math.ceil (Math.max(Math.max(soa.z0[i], soa.z1[i]), soa.z2[i])), 0, grid - 1);
-            int s0 = z0 / slabH;
-            int s1 = z1 / slabH;
-            for (int s = s0; s <= s1; ++s) slabBins[s].add(i);
+        for (int s = 0; s < slabCount; ++s) slabBins[s] = new IntArray(1 << 12);
+
+        for (int t = 0; t < soa.n; ++t) {
+
+            int triMinZ = clamp((int)Math.floor(Math.min(soa.z0[t], Math.min(soa.z1[t], soa.z2[t]))), 0, grid - 1);
+
+            int triMaxZ = clamp((int)Math.ceil (Math.max(soa.z0[t], Math.max(soa.z1[t], soa.z2[t]))), 0, grid - 1);
+
+            int slabMin = triMinZ / slabH;
+
+            int slabMax = triMaxZ / slabH;
+
+            for (int slab = slabMin; slab <= slabMax; ++slab) slabBins[slab].add(t);
+
         }
 
-        // --- allocate outputs ---
-        int total = grid * grid * grid;
-        BitSet occ = new BitSet(total);
-        int[] colors = new int[total];
-        float[] bestD2 = new float[total];
+        BitSet occ = new BitSet(grid * grid * grid);
+
+        int totalVoxels = grid * grid * grid;
+
+        int[] colors = new int[totalVoxels];
+
+        float[] bestD2 = new float[totalVoxels];
+
         Arrays.fill(bestD2, Float.POSITIVE_INFINITY);
 
-        // --- parallel rasterisation per slab ---
         int threads = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), slabCount));
-        if (verbose) System.out.printf("[Raster] slabs=%d  threads≈%d%n", slabCount, threads);
+
+        if (verbose) System.out.printf("[Raster] slabs=%d  threads=%d%n", slabCount, threads);
+
         ExecutorService pool = Executors.newWorkStealingPool(threads);
+
         List<Future<Integer>> futures = new ArrayList<>(slabCount);
 
         for (int s = 0; s < slabCount; ++s) {
-            final int sIdx = s;
-            final int zStart = sIdx * slabH;
+
+            final int slabIndex = s;
+
+            final int zStart = slabIndex * slabH;
+
             final int zEnd = Math.min(grid, zStart + slabH);
-            final IntArray list = slabBins[sIdx];
+
+            final IntArray list = slabBins[slabIndex];
+
             futures.add(pool.submit(() ->
+
                 rasterizeSlab(soa, list, zStart, zEnd, grid, unit, FLIP_V, occ, colors, bestD2)
+
             ));
+
         }
 
-        int filled = 0, trisTouched = 0;
-        for (Future<Integer> f : futures) {
-            filled += f.get();
-            trisTouched++;
-        }
+        int filled = 0;
+
+        for (Future<Integer> f : futures) filled += f.get();
+
         pool.shutdown();
 
         if (verbose) System.out.printf(Locale.ROOT, "[Raster] tri=%d  filled=%d%n", soa.n, filled);
 
-        // --- emit JSON (palette + xyzi) ---
-        String base = baseName(glbFile);
-        File jsonOut = new File(outDir, base + "_" + grid + ".json");
-        emitJSON(jsonOut, colors, occ, grid, ox, oy, oz);
+        return new VoxelComputation(label, occ, colors, ox, oy, oz, soa.n, filled);
 
-        return new Stats(base, grid, soa.n, filled, ox, oy, oz);
     }
+
+
+
+    private VoxelPayload buildPayload(VoxelComputation comp) {
+
+        Map<Integer, int[]> palette = new LinkedHashMap<>();
+
+        Map<Integer, Integer> paletteIndex = new LinkedHashMap<>();
+
+        List<int[]> xyzi = new ArrayList<>(Math.max(1, comp.filled));
+
+        int nextIdx = 0;
+
+        for (int idx = comp.occ.nextSetBit(0); idx >= 0; idx = comp.occ.nextSetBit(idx + 1)) {
+
+            int z = idx / (grid * grid);
+
+            int rem = idx - z * (grid * grid);
+
+            int y = rem / grid;
+
+            int x = rem - y * grid;
+
+            int rgb = comp.colors[idx];
+
+            Integer paletteIdx = paletteIndex.get(rgb);
+
+            if (paletteIdx == null) {
+
+                paletteIdx = nextIdx++;
+
+                paletteIndex.put(rgb, paletteIdx);
+
+                palette.put(paletteIdx, new int[]{ (rgb >>> 16) & 255, (rgb >>> 8) & 255, rgb & 255 });
+
+            }
+
+            xyzi.add(new int[]{ x - comp.ox, y - comp.oy, z - comp.oz, paletteIdx });
+
+        }
+
+        return new VoxelPayload(comp.baseName, palette, xyzi, grid, comp.triangles, comp.filled);
+
+    }
+
+
+
+
 
     // ---------- rasterisation per slab ----------
     private static int rasterizeSlab(
@@ -513,7 +671,11 @@ public final class JavaCpuVoxelizer {
     private static final class GltfReader {
         static LoaderResult loadTrianglesAndGlobalTexture(File glb) throws Exception {
             byte[] bytes = Files.readAllBytes(glb.toPath());
-            GltfModel model = new GltfModelReader().readWithoutReferences(new ByteArrayInputStream(bytes));
+            return loadTrianglesAndGlobalTexture(bytes);
+        }
+
+        static LoaderResult loadTrianglesAndGlobalTexture(byte[] glbBytes) throws Exception {
+            GltfModel model = new GltfModelReader().readWithoutReferences(new ByteArrayInputStream(glbBytes));
 
             IntArray triIdx = new IntArray(1<<20);
             FloatArray vx = new FloatArray(1<<20), vy=new FloatArray(1<<20), vz=new FloatArray(1<<20);
