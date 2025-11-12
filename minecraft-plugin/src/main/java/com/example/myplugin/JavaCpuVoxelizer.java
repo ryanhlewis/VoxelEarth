@@ -54,6 +54,18 @@ public final class JavaCpuVoxelizer {
     private static final float TILE_Y = 38.0f * TILE_SCALE;
     private static final float TILE_Z = 24.0f * TILE_SCALE;
 
+    private static void logVerbose(boolean verbose, String message) {
+        if (verbose) {
+            Log.info(message);
+        }
+    }
+
+    private static void logVerbosef(boolean verbose, String format, Object... args) {
+        if (verbose) {
+            Log.info(String.format(Locale.ROOT, format, args));
+        }
+    }
+
     public JavaCpuVoxelizer(int gridSize, boolean tiles3d, boolean verbose) {
         this.grid = Math.max(8, gridSize);
         this.tiles3d = tiles3d;
@@ -129,7 +141,7 @@ public final class JavaCpuVoxelizer {
 
     public Stats voxelizeSingleGLB(File glbFile, File outDir) throws Exception {
 
-        if (verbose) System.out.println("[Load] " + glbFile.getAbsolutePath());
+        logVerbose(verbose, "[Load] " + glbFile.getAbsolutePath());
 
         LoaderResult lr = GltfReader.loadTrianglesAndGlobalTexture(glbFile);
 
@@ -145,7 +157,7 @@ public final class JavaCpuVoxelizer {
 
     public VoxelPayload voxelizeToMemory(String tileId, byte[] glbBytes) throws Exception {
 
-        if (verbose) System.out.println("[Load] <memory> " + tileId);
+        logVerbose(verbose, "[Load] <memory> " + tileId);
 
         LoaderResult lr = GltfReader.loadTrianglesAndGlobalTexture(glbBytes);
 
@@ -167,13 +179,8 @@ public final class JavaCpuVoxelizer {
 
         Aabb cube = rect.toCube();
 
-        if (verbose) {
-
-            System.out.printf(Locale.ROOT, "[BBox] tiles=%s cube min=(%.6f,%.6f,%.6f) max=(%.6f,%.6f,%.6f)%n",
-
-                    String.valueOf(tiles3d), cube.minx, cube.miny, cube.minz, cube.maxx, cube.maxy, cube.maxz);
-
-        }
+        logVerbosef(verbose, "[BBox] tiles=%s cube min=(%.6f,%.6f,%.6f) max=(%.6f,%.6f,%.6f)",
+                String.valueOf(tiles3d), cube.minx, cube.miny, cube.minz, cube.maxx, cube.maxy, cube.maxz);
 
         float maxDim = Math.max(Math.max(cube.maxx - cube.minx, cube.maxy - cube.miny), (cube.maxz - cube.minz));
 
@@ -181,7 +188,7 @@ public final class JavaCpuVoxelizer {
 
         if (unit <= 0) throw new IllegalStateException("Non-positive unit");
 
-        if (verbose) System.out.printf(Locale.ROOT, "[Grid] %d^3  unit=%.6f%n", grid, unit);
+        logVerbosef(verbose, "[Grid] %d^3  unit=%.6f", grid, unit);
 
         int ox = Math.round((-cube.minx) / unit);
 
@@ -225,7 +232,7 @@ public final class JavaCpuVoxelizer {
 
         int threads = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), slabCount));
 
-        if (verbose) System.out.printf("[Raster] slabs=%d  threads=%d%n", slabCount, threads);
+        logVerbosef(verbose, "[Raster] slabs=%d  threads=%d", slabCount, threads);
 
         ExecutorService pool = Executors.newWorkStealingPool(threads);
 
@@ -255,7 +262,7 @@ public final class JavaCpuVoxelizer {
 
         pool.shutdown();
 
-        if (verbose) System.out.printf(Locale.ROOT, "[Raster] tri=%d  filled=%d%n", soa.n, filled);
+        logVerbosef(verbose, "[Raster] tri=%d  filled=%d", soa.n, filled);
 
         return new VoxelComputation(label, occ, colors, ox, oy, oz, soa.n, filled);
 

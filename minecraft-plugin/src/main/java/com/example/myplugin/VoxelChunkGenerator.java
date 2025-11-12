@@ -73,9 +73,25 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private final Map<UUID, String>     prevStageEntry = new ConcurrentHashMap<>();
     private final Map<UUID, Scoreboard> previousBoards = new ConcurrentHashMap<>();
     private static final String SCOREBOARD_TITLE =
-            ChatColor.AQUA + "Voxel Earth" + ChatColor.DARK_GRAY + " — " + ChatColor.WHITE + "© Google Earth";
+            ChatColor.AQUA + "Voxel Earth" + ChatColor.DARK_GRAY + " - " + ChatColor.WHITE + "© Google Earth";
     private static final int BAR_WIDTH = 20;
     private static final int MAX_STAGE_LEN = 26; // keep lines tidy
+
+    private static void debug(String message) {
+        Log.debug(message);
+    }
+
+    private static void debugf(String format, Object... args) {
+        Log.debug(String.format(format, args));
+    }
+
+    private static void info(String message) {
+        Log.info(message);
+    }
+
+    private static void warn(String message) {
+        Log.warning(message);
+    }
 
     // VISIT tile radius (for /visit)
     private volatile int visitTileRadius = 200;   // default; was 50 in earlier example
@@ -170,10 +186,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     public VoxelChunkGenerator() {
-        System.out.println("[DEBUG] VoxelChunkGenerator initialized");
-        System.out.println("[DEBUG] LAT_ORIGIN: " + LAT_ORIGIN + ", LNG_ORIGIN: " + LNG_ORIGIN);
-        System.out.println("[DEBUG] Default scaleFactor (metersPerBlock): " + scaleFactor);
-        System.out.println("[DEBUG] Using a tile radius of 25 for single tile loading.");
+        debug("VoxelChunkGenerator initialized");
+        debug("LAT_ORIGIN: " + LAT_ORIGIN + ", LNG_ORIGIN: " + LNG_ORIGIN);
+        debug("Default scaleFactor (metersPerBlock): " + scaleFactor);
+        debug("Using a tile radius of 25 for single tile loading.");
 
         tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25); 
         loadMaterialColors();
@@ -285,7 +301,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private String trimForScore(String s, int max) {
         if (s == null) return "";
         if (s.length() <= max) return s;
-        return s.substring(0, Math.max(0, max - 1)) + "â€¦";
+        return s.substring(0, Math.max(0, max - 1)) + "...";
     }
 
     private boolean detectFawe() {
@@ -310,12 +326,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                             double scaleX, double scaleY, double scaleZ, 
                             double newOffsetX, double newOffsetY, double newOffsetZ) {
 
-        System.out.println("[DEBUG] regenChunks called with scaleX=" + scaleX + ", scaleY=" + scaleY + ", scaleZ=" + scaleZ);
-        System.out.println("[DEBUG] offsets: X=" + newOffsetX + ", Y=" + newOffsetY + ", Z=" + newOffsetZ);
+        debug("regenChunks called with scaleX=" + scaleX + ", scaleY=" + scaleY + ", scaleZ=" + scaleZ);
+        debug("offsets: X=" + newOffsetX + ", Y=" + newOffsetY + ", Z=" + newOffsetZ);
 
         indexedBlocks.clear();
         loadMaterialColors();
-        System.out.println("[DEBUG] MATERIAL_COLORS size: " + MATERIAL_COLORS.size());
+        debug("MATERIAL_COLORS size: " + MATERIAL_COLORS.size());
 
         this.offsetX = newOffsetX;
         this.offsetY = newOffsetY;
@@ -324,7 +340,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         this.scaleY = scaleY;
         this.scaleZ = scaleZ;
 
-        System.out.println("[DEBUG] Starting block removal and regeneration...");
+        debug("Starting block removal and regeneration...");
         List<Chunk> chunksToProcess = new ArrayList<>();
 
         for (int chunkX = -20; chunkX <= 20; chunkX++) {
@@ -338,7 +354,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         try {
             downloadAndProcessTiles(0, 0);
         } catch (Exception e) {
-            System.out.println("[DEBUG] Failed to load indexed JSON blocks.");
+            debug("Failed to load indexed JSON blocks.");
             e.printStackTrace();
         }
 
@@ -351,7 +367,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
         Bukkit.getScheduler().runTaskTimer(Bukkit.getPluginManager().getPlugin("VoxelEarth"), task -> {
             if (currentIndex.get() >= chunks.size()) {
-                System.out.println("[DEBUG] All chunks processed and blocks placed.");
+                debug("All chunks processed and blocks placed.");
                 task.cancel();
                 return;
             }
@@ -386,10 +402,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     public void loadMaterialColors() {
-        System.out.println("[DEBUG] Loading material colors...");
+        debug("Loading material colors...");
         try (InputStream is = getClass().getResourceAsStream("/vanilla.atlas")) {
             if (is == null) {
-                System.out.println("[DEBUG] vanilla.atlas not found in resources.");
+                debug("vanilla.atlas not found in resources.");
                 return;
             }
             JSONObject atlasJson = new JSONObject(new JSONTokener(is));
@@ -407,7 +423,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 int b = (int) (colourObject.getDouble("b") * 255);
 
                 MATERIAL_COLORS.add(new MaterialColor(material, new Color(r, g, b)));
-                System.out.printf("[DEBUG] Loaded material: %s with color: (%d, %d, %d)%n", material, r, g, b);
+                debugf("Loaded material: %s with color: (%d, %d, %d)", material, r, g, b);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -425,7 +441,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             } else if (formattedName.matches("FROSTED_ICE_\\d")) {
                 material = Material.ICE;
             } else {
-                System.out.printf("[DEBUG] Material not found for block: %s. Using STONE as fallback.%n", formattedName);
+                debugf("Material not found for block: %s. Using STONE as fallback.", formattedName);
                 material = Material.STONE;
             }
         }
@@ -434,13 +450,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
     private void downloadAndProcessTiles(int chunkX, int chunkZ) {
         try {
-            System.out.println("[DEBUG] Calling downloadTiles for single tile load at radius 25");
-            System.out.println("[DEBUG] Set coordinates: lng=" + LNG_ORIGIN + ", lat=" + LAT_ORIGIN);
+            debug("Calling downloadTiles for single tile load at radius 25");
+            debug("Set coordinates: lng=" + LNG_ORIGIN + ", lat=" + LAT_ORIGIN);
             tileDownloader.setCoordinates(LNG_ORIGIN, LAT_ORIGIN);
             List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
-            System.out.println("[DEBUG] Downloaded tiles: " + downloadedTiles.size());
+            debug("Downloaded tiles: " + downloadedTiles.size());
             if (downloadedTiles.isEmpty()) {
-                System.out.println("[DEBUG] No new tiles were downloaded.");
+                debug("No new tiles were downloaded.");
                 return;
             }
             List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, null);
@@ -459,9 +475,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             try {
                 JavaCpuVoxelizer.VoxelPayload payload = voxelCache.get(tile.tileId());
                 if (payload != null) {
-                    System.out.println("[DEBUG] Voxel cache hit: " + tile.tileId());
+                debug("Voxel cache hit: " + tile.tileId());
                 } else {
-                    System.out.println("[DEBUG] Voxel cache miss: " + tile.tileId());
+                debug("Voxel cache miss: " + tile.tileId());
                     payload = voxelizer.voxelizeToMemory(tile.tileId(), tile.glbBytes());
                     if (payload != null) {
                         voxelCache.put(tile.tileId(), payload);
@@ -471,7 +487,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     results.add(new VoxelizedTile(tile.tileId(), payload, tile.translation()));
                 }
             } catch (Exception e) {
-                System.out.println("[WARN] Voxelizer failed for " + tile.tileId() + ": " + e.getMessage());
+                warn("Voxelizer failed for " + tile.tileId() + ": " + e.getMessage());
                 if (playerId != null) notifyProgress(playerId, -1, "Voxelizer failed for " + tile.tileId());
             }
             if (playerId != null) {
@@ -493,7 +509,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 try {
                     processVoxelizedTile(tile, chunkX, chunkZ);
                 } catch (Exception e) {
-                    System.out.println("[DEBUG] Error loading voxel tile " + tile.tileId + ": " + e.getMessage());
+                    debug("Error loading voxel tile " + tile.tileId + ": " + e.getMessage());
                 } finally {
                     if (playerId != null) {
                         int now = processed.incrementAndGet();
@@ -519,7 +535,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             tileTranslation[0] = (rawTranslation[0] * scaleX) + offsetX + (chunkX * 16);
             tileTranslation[1] = (rawTranslation[1] * scaleY) + offsetY;
             tileTranslation[2] = (rawTranslation[2] * scaleZ) + offsetZ + (chunkZ * 16);
-            System.out.println("[DEBUG] Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
+            debug("Computed tileTranslation: (" + tileTranslation[0] + ", " + tileTranslation[1] + ", " + tileTranslation[2] + ")");
         }
 
         Map<Integer, Material> colorIndexToMaterial = new HashMap<>();
@@ -555,8 +571,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
         IndexedTile indexed = new IndexedTile(tile.tileId, voxels);
         indexedBlocks.put(tile.tileId, indexed);
-        System.out.println("[DEBUG] Loaded tile: " + tile.tileId + " with " + voxels.size() + " blocks.");
-        System.out.println("[DEBUG] Block bounding box for " + tile.tileId + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
+        debug("Loaded tile: " + tile.tileId + " with " + voxels.size() + " blocks.");
+        debug("Block bounding box for " + tile.tileId + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
     }
 
 
@@ -593,7 +609,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         if (bestMatch != null && minDeltaE <= 10.0) {
             return bestMatch.getMaterial();
         } else {
-            System.out.printf("[DEBUG] No suitable match for color (%d, %d, %d). Using STONE%n", r, g, b);
+            debugf("No suitable match for color (%d, %d, %d). Using STONE", r, g, b);
             return Material.STONE;
         }
     }
@@ -608,7 +624,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     public void loadJson(String filename, double scaleX, double scaleY, double scaleZ, double offsetX, double offsetY, double offsetZ) throws IOException {
         File file = new File(filename);
         if (!file.exists()) {
-            System.out.println("[DEBUG] File " + filename + " does not exist.");
+        debug("File " + filename + " does not exist.");
             return;
         }
 
@@ -621,7 +637,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             double[] tileTranslation = new double[3];
 
             if (!json.has("blocks") || !json.has("xyzi")) {
-                System.out.println("[DEBUG] JSON file " + filename + " missing 'blocks' or 'xyzi'.");
+                debug("JSON file " + filename + " missing 'blocks' or 'xyzi'.");
                 return;
             }
 
@@ -661,12 +677,12 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             indexedBlocks.put(baseName, new IndexedTile(baseName, voxels));
 
             Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
-                System.out.println("[DEBUG] Starting chunk regeneration after loadJson...");
-                System.out.println("[DEBUG] IndexedBlocks length: " + indexedBlocks.size());
+            debug("Starting chunk regeneration after loadJson...");
+            debug("IndexedBlocks length: " + indexedBlocks.size());
 
                 World world = Bukkit.getWorld("world");
                 if (world == null) {
-                    System.out.println("[DEBUG] World not found in loadJson placement.");
+                    debug("World not found in loadJson placement.");
                     return;
                 }
 
@@ -676,10 +692,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     placeBlocks(world, tile.voxels(), 0);
                     tile.markPlaced();
                 }
-                System.out.println("[DEBUG] JSON generated.");
+                debug("JSON generated.");
             });
 
-            System.out.println("[DEBUG] Loaded JSON file: " + filename);
+            debug("Loaded JSON file: " + filename);
         }
     }
 
@@ -706,7 +722,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 // CHANGED: handle origin based on visit/non-visit
                 if (isVisit) {
-                    // Fresh visit â†’ clear any stale state and force null origin
+                    // Fresh visit -> clear any stale state and force null origin
                     beginVisit(playerUUID); // NEW
                     tileDownloader.setOrigin(null); // NEW: ensure no stale origin affects voxelization
                 } else {
@@ -717,28 +733,29 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 int[] blockLocation = new int[]{210, 70, 0};
 
                 double[] latLng = minecraftToLatLng(playerUUID, tileX, tileZ);
-                System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
+                debug("loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                notifyProgress(playerUUID, 15, "Preparing download â€¦");
+                notifyProgress(playerUUID, 15, "Preparing download ...");
                 
                 // ðŸ”´ THIS is the key line:
-                tileDownloader.setRadius(isVisit ? getVisitTileRadius() : getMoveTileRadius());
+                int activeRadius = isVisit ? getVisitTileRadius() : getMoveTileRadius();
+                tileDownloader.setRadius(activeRadius);
 
-                System.out.println("[DEBUG] Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius 25");
-                notifyProgress(playerUUID, 20, "Downloading tiles â€¦");
+                debug("Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius " + activeRadius);
+                notifyProgress(playerUUID, 20, "Downloading tiles ...");
                 List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
-                System.out.println("[DEBUG] Downloaded tile payloads: " + downloadedTiles.size());
+                debug("Downloaded tile payloads: " + downloadedTiles.size());
 
                 if (downloadedTiles.isEmpty()) {
-                    System.out.println("[DEBUG] No tiles downloaded.");
+                    debug("No tiles downloaded.");
                     notifyProgress(playerUUID, -1, "No tiles available for this area.");
                     callback.accept(blockLocation);
                     return;
                 }
 
-                System.out.println("[DEBUG] Running voxelizer for in-memory tiles...");
-                notifyProgress(playerUUID, 55, "Preparing voxelizer â€¦");
+                debug("Running voxelizer for in-memory tiles...");
+                notifyProgress(playerUUID, 55, "Preparing voxelizer ...");
                 List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, playerUUID);
                 if (voxelTiles.isEmpty()) {
                     notifyProgress(playerUUID, -1, "Voxelization failed.");
@@ -754,13 +771,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 if (isVisit) {
                     playerXOffsets.put(playerUUID, tileX);
                     playerZOffsets.put(playerUUID, tileZ);
-                    System.out.println("[DEBUG] Visit mode: storing offsets tileX=" + tileX + ", tileZ=" + tileZ);
+                    debug("Visit mode: storing offsets tileX=" + tileX + ", tileZ=" + tileZ);
                 } else {
                     Integer storedXOffset = playerXOffsets.get(playerUUID);
                     Integer storedZOffset = playerZOffsets.get(playerUUID);
                     if (storedXOffset != null) adjustedTileX = storedXOffset;
                     if (storedZOffset != null) adjustedTileZ = storedZOffset;
-                    System.out.println("[DEBUG] Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
+                    debug("Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
                 }
 
                 ingestVoxelizedTiles(voxelTiles, adjustedTileX, adjustedTileZ, playerUUID);
@@ -773,23 +790,23 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 } else if (!indexedBlocks.isEmpty()) {
                     initialTileKey = indexedBlocks.keySet().iterator().next();
                 } else {
-                    System.out.println("[DEBUG] No tiles loaded, cannot compute block location.");
+                    debug("No tiles loaded, cannot compute block location.");
                     callback.accept(blockLocation);
                     return;
                 }
 
-                System.out.println("[DEBUG] Initial tile key: " + initialTileKey);
+                debug("Initial tile key: " + initialTileKey);
 
                 final AtomicInteger yOffset = new AtomicInteger(0);
                 final int desiredY = 70;
 
-                System.out.println("[DEBUG] Starting chunk regeneration...");
-                System.out.println("[DEBUG] IndexedBlocks size: " + indexedBlocks.size());
-                notifyProgress(playerUUID, 90, "Placing blocks â€¦");
+                debug("Starting chunk regeneration...");
+                debug("IndexedBlocks size: " + indexedBlocks.size());
+                notifyProgress(playerUUID, 90, "Placing blocks ...");
 
                 World world = Bukkit.getWorld("world");
                 if (world == null) {
-                    System.out.println("[DEBUG] World 'world' not found!");
+                    debug("World 'world' not found!");
                     notifyProgress(playerUUID, -1, "World not found");
                     callback.accept(blockLocation);
                     return;
@@ -803,28 +820,28 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                             .orElse(0);
 
                     yOffset.set(desiredY - minYInTile);
-                    System.out.println("[DEBUG] Computed yOffset: " + yOffset.get());
+                debug("Computed yOffset: " + yOffset.get());
 
                 if (isVisit) {
                     double[] discoveredOrigin = tileDownloader.getOrigin();
                     if (discoveredOrigin != null) {
                         double[] originCopy = Arrays.copyOf(discoveredOrigin, discoveredOrigin.length);
                         playerOrigins.put(playerUUID, originCopy);
-                        System.out.println("[DEBUG] Storing player origin from TileDownloader: " + Arrays.toString(originCopy));
+                        debug("Storing player origin from TileDownloader: " + Arrays.toString(originCopy));
                     } else {
-                        System.out.println("[DEBUG] TileDownloader did not report an origin for this download.");
+                        debug("TileDownloader did not report an origin for this download.");
                     }
                     playerYOffsets.put(playerUUID, yOffset.get());
                 } else {
                     Integer storedYOffset = playerYOffsets.get(playerUUID);
                     if (storedYOffset != null) {
                         yOffset.set(storedYOffset);
-                        System.out.println("[DEBUG] Using stored yOffset: " + yOffset.get());
+                        debug("Using stored yOffset: " + yOffset.get());
                     }
                 }
 
                     if (!indexMap1.isPlaced()) {
-                        System.out.println("[DEBUG] Placing blocks for initial tile...");
+                        debug("Placing blocks for initial tile...");
                         notifyProgress(playerUUID, 92, "Placing first tile ...");
                         placeBlocks(world, indexMap1.voxels(), yOffset.get());
                         indexMap1.markPlaced();
@@ -836,7 +853,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                         blockLocation[1] = first.y() + yOffset.get();
                         blockLocation[2] = first.z();
 
-                        System.out.println("[DEBUG] First block location: " + Arrays.toString(blockLocation));
+                        debug("First block location: " + Arrays.toString(blockLocation));
                     }
                 }
 
@@ -844,7 +861,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 indexedBlocks.forEach((tileKey, indexMap) -> {
                     if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !indexMap.isPlaced()) {
-                        System.out.println("[DEBUG] Placing blocks for secondary tile: " + tileKey);
+                        debug("Placing blocks for secondary tile: " + tileKey);
                         // Avoid long filenames in HUD; keep it tidy.
                         notifyProgress(playerUUID, 94, "Placing blocks ...");
                         placeBlocks(world, indexMap.voxels(), yOffset.get());
@@ -852,17 +869,17 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     }
                 });
 
-                System.out.println("[DEBUG] Chunk regeneration completed.");
+                debug("Chunk regeneration completed.");
                 if (isVisit) {
-                    notifyProgress(playerUUID, 98, "Teleporting â€¦");
+                    notifyProgress(playerUUID, 98, "Teleporting ...");
                 } else {
-                    // Movement loads shouldn't get stuckâ€”settle on Idle.
+                    // Movement loads shouldn't get stuck--settle on Idle.
                     notifyProgress(playerUUID, 0, "Idle");
                 }
                 callback.accept(blockLocation);
 
             } catch (IOException | InterruptedException e) {
-                System.out.println("[DEBUG] Exception in loadChunk:");
+                debug("Exception in loadChunk:");
                 e.printStackTrace();
                 int[] blockLocation = new int[]{210, 70, 0};
                 notifyProgress(playerUUID, -1, "Load failed: " + e.getMessage());
@@ -906,10 +923,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 modifiedChunks.add(world.getChunkAt(x >> 4, z >> 4));
             }
         } catch (Throwable t) {
-            System.out.println("[DEBUG] placeBlocksWithFaweSession error: " + t);
+            debug("placeBlocksWithFaweSession error: " + t);
             return false;
         }
-        updateLighting(world, modifiedChunks);
         return true;
     }
 
@@ -944,16 +960,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             );
 
             modifiedChunks.add(world.getChunkAt(blockChunkX, blockChunkZ));
-        }
-        updateLighting(world, modifiedChunks);
-    }
-
-    private void updateLighting(World world, Set<Chunk> modifiedChunks) {
-        System.out.println("[DEBUG] Updating lighting for modified chunks...");
-        for (Chunk chunk : modifiedChunks) {
-            int chunkX = chunk.getX();
-            int chunkZ = chunk.getZ();
-            world.refreshChunk(chunkX, chunkZ);
         }
     }
 
@@ -990,7 +996,7 @@ int newOffsetZZ = oldOffsetZZ *0;//* 5; // 2345
 
 private static final double BLOCKS_PER_METER = 2.1;
 
-// So the inverse must be used when turning *blocks â†’ meters* for lat/lng:
+// So the inverse must be used when turning *blocks -> meters* for lat/lng:
 private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER; // 0.476190476...
 private double metersPerChunk() {
     return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
@@ -1000,8 +1006,8 @@ public int[] computeIslandBaseFor(double lat, double lng) {
     int gNorth = (int)Math.floor((lat + 90.0)  / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
     int gEast  = (int)Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
 
-    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X â‡ latitude (north/south)
-    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z â‡ longitude (east/west)
+    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X <- latitude (north/south)
+    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z <- longitude (east/west)
     return new int[]{ baseChunkX, baseChunkZ };
 }
 
@@ -1284,7 +1290,7 @@ private double[] latLngToMeters(double lat, double lng) {
 
     public double[] blockToLatLng(double x, double z) {
         if(originEcef == null) {
-            System.out.println("[DEBUG] Block Origin ECEF not set.");
+            debug("Block Origin ECEF not set.");
             return new double[]{210, 70, 0};
         }
 
@@ -1305,7 +1311,7 @@ private double[] latLngToMeters(double lat, double lng) {
 
     public int[] latLngToBlock(double lat, double lng) {
         if(originEcef == null) {
-            System.out.println("[DEBUG] Origin ECEF not set.");
+            debug("Origin ECEF not set.");
             return new int[]{0, 0};
         }
 

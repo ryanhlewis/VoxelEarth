@@ -83,7 +83,7 @@ public class TileDownloader {
         long start = System.currentTimeMillis();
         List<TilePayload> javaResult = downloadAndRotateWithJava();
         long end = System.currentTimeMillis();
-        System.out.println("[PERF] In-memory Java pipeline took " + (end - start) + " ms, tiles=" + javaResult.size());
+        Log.info("[PERF] In-memory Java pipeline took " + (end - start) + " ms, tiles=" + javaResult.size());
         return javaResult;
     }
 
@@ -109,10 +109,10 @@ public class TileDownloader {
             Map.Entry<String, byte[]> first = entries.get(0);
             try {
                 this.origin = AssimpDracoDecode.measureOriginCenterFromGlbBytes(first.getValue());
-                System.out.printf("[INFO] Adopted shared origin from first tile: (%.6f, %.6f, %.6f)%n",
-                        origin[0], origin[1], origin[2]);
+                Log.info(String.format("[INFO] Adopted shared origin from first tile: (%.6f, %.6f, %.6f)",
+                        origin[0], origin[1], origin[2]));
             } catch (Exception e) {
-                System.out.println("[WARN] Could not derive origin from first tile; continuing with per-tile centers.");
+                Log.warning("[WARN] Could not derive origin from first tile; continuing with per-tile centers.");
             }
         }
 
@@ -149,7 +149,7 @@ public class TileDownloader {
             double[] translation = tryReadRootTranslationFromBytes(outBytes);
             return new TilePayload(tileId, outBytes, translation);
         } catch (Throwable t) {
-            System.out.println("[WARN] Assimp rotation failed for " + inputName + " : " + t.getMessage());
+            Log.warning("[WARN] Assimp rotation failed for " + inputName + " : " + t.getMessage());
             double[] translation = tryReadRootTranslationFromBytes(glbBytes);
             return new TilePayload(base, glbBytes, translation);
         }

@@ -63,9 +63,11 @@ public final class AssimpDracoDecode {
 
 
     // ---------- tiny dbg helpers ----------
-    private static void dbg(boolean v, String fmt, Object... args){ if(v) System.out.printf(fmt + "%n", args); }
-    private static void dbgVec(boolean v, String label, float[] a){
-        if(v) System.out.printf("%s = (%.6f, %.6f, %.6f)%n", label, a[0], a[1], a[2]);
+    private static void dbg(boolean verbose, String fmt, Object... args){
+        if (verbose) Log.info(String.format(fmt, args));
+    }
+    private static void dbgVec(boolean verbose, String label, float[] a){
+        if (verbose) Log.info(String.format("%s = (%.6f, %.6f, %.6f)", label, a[0], a[1], a[2]));
     }
     private static String nm(AINode n){ return n!=null && n.mName()!=null ? n.mName().dataString() : "<unnamed>"; }
 

@@ -28,6 +28,8 @@ import java.util.Set;
 
 public class VoxelEarth extends JavaPlugin {
 
+    private static VoxelEarth instance;
+
     // Hold a single instance of VoxelChunkGenerator
     private VoxelChunkGenerator voxelChunkGenerator;
     private PlayerMovementListener movementListener;
@@ -63,8 +65,18 @@ public class VoxelEarth extends JavaPlugin {
         Material.SOUL_CAMPFIRE
     );
 
+    public static VoxelEarth getInstance() {
+        return instance;
+    }
+
+    @Override
+    public void onLoad() {
+        instance = this;
+    }
+
     @Override
     public void onEnable() {
+        instance = this;
         getLogger().info("VoxelEarth has been enabled");
         if (!Debug.isDebug()) {
             getLogger().setLevel(java.util.logging.Level.WARNING);
@@ -86,6 +98,7 @@ public class VoxelEarth extends JavaPlugin {
     @Override
     public void onDisable() {
         getLogger().info("VoxelEarth has been disabled");
+        instance = null;
     }
 
     @Override

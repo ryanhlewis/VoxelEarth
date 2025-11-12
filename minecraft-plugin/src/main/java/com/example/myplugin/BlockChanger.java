@@ -2822,12 +2822,12 @@ final class ReflectionUtils {
 		// if (found == null) throw new IllegalArgumentException(
 		// 		"Failed to parse server version. Could not find any package starting with name: 'org.bukkit.craftbukkit.v'");
 		if (found == null) {
-			System.err.println("Failed to parse server version. Falling back to hardcoded version.");
+			Log.warning("Failed to parse server version. Falling back to hardcoded version.");
 			
 			// System.out.println("NMS_PACKAGE: " + NMS_PACKAGE);
 			// System.out.println("CRAFTBUKKIT_PACKAGE: " + CRAFTBUKKIT_PACKAGE);
-			System.out.println("Detected server version: " + Bukkit.getVersion());
-			System.out.println("Bukkit package: " + Bukkit.getServer().getClass().getPackage().getName());
+			Log.info("Detected server version: " + Bukkit.getVersion());
+			Log.info("Bukkit package: " + Bukkit.getServer().getClass().getPackage().getName());
 
 			found = "v1_20_R4"; // Correct for Paper/Spigot for Minecraft 1.20.6
 		}		

@@ -83,7 +83,7 @@ final class TilesDownloader implements AutoCloseable {
         // Gather .glb URLs via BFS over tilesets (fully parallel, bounded)
         List<URI> glbUris = collectGlbUris(apiKey, region);
 
-        System.out.println("[INFO] Found " + glbUris.size() + " .glb tile(s).");
+        Log.info("[INFO] Found " + glbUris.size() + " .glb tile(s).");
         if (glbUris.isEmpty()) return List.of();
 
         // Download all .glb (parallel)
@@ -112,7 +112,7 @@ final class TilesDownloader implements AutoCloseable {
         Sphere region = new Sphere(centerECEF, radiusMeters);
 
         List<URI> glbUris = collectGlbUris(apiKey, region);
-        System.out.println("[INFO] Found " + glbUris.size() + " .glb tile(s).");
+        Log.info("[INFO] Found " + glbUris.size() + " .glb tile(s).");
         Map<String, byte[]> out = new ConcurrentHashMap<>();
         if (glbUris.isEmpty()) return out;
 
@@ -557,7 +557,7 @@ final class TilesDownloader implements AutoCloseable {
     }
 
     private void log(String fmt, Object... args){
-        if (verbose) System.out.println(String.format(Locale.ROOT, fmt, args));
+        if (verbose) Log.info(String.format(Locale.ROOT, fmt, args));
     }
 
     // ---- graceful shutdown (AutoCloseable) ----
