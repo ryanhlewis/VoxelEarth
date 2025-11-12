@@ -53,6 +53,14 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private Map<UUID, Integer> playerYOffsets = new ConcurrentHashMap<>();
     private Map<UUID, Integer> playerZOffsets = new ConcurrentHashMap<>();
 
+    // Per-player Mercator anchor offsets (meters) for stabilized chunk<->lat/lng mapping
+    private final Map<UUID, Double> anchorXXm = new ConcurrentHashMap<>();
+    private final Map<UUID, Double> anchorZZm = new ConcurrentHashMap<>();
+
+    // Island tiling near origin so each visit lands on its own base chunk
+    private static final int ISLAND_STRIDE_CHUNKS = 4096; // ~31 km between islands at 0.476 m/block
+    private static final int ISLAND_GRID_SPAN = 128;      // keeps base chunks within +/-262k
+
     // Progress tracking (per player)
     private final Map<UUID, Integer> lastPct = new ConcurrentHashMap<>();
     private final Map<UUID, String> lastStage = new ConcurrentHashMap<>();
@@ -968,7 +976,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
                 String outputDirectory = SESSION_DIR;
 
-                double[] latLng = minecraftToLatLng(tileX, tileZ);
+                double[] latLng = minecraftToLatLng(playerUUID, tileX, tileZ);
                 System.out.println("[DEBUG] loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
                 tileDownloader.setCoordinates(latLng[1], latLng[0]);
@@ -1284,8 +1292,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     //     return new double[]{x, z};
     // }
 
-    int oldOffsetXX = 7677201 - 7677296;
-    int oldOffsetZZ = -11936601 - (-11937070);
+    int oldOffsetXX = 7677201 - 7677296; // -95
+    int oldOffsetZZ = -11936601 - (-11937070); // 469
 
     // int newOffsetXX = oldOffsetXX * 5;
     // int newOffsetZZ = oldOffsetZZ * 5;
@@ -1294,8 +1302,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 // metersPerBlock = 2.1
 // metersPerChunk = 2.1 * 16 = 33.6
 // Suppose old offsets were chosen for the old scale; now multiply them by 5 to compensate.
-int newOffsetXX = oldOffsetXX * 5;
-int newOffsetZZ = oldOffsetZZ * 5;
+int newOffsetXX = oldOffsetXX *0;//* 5; // -475
+int newOffsetZZ = oldOffsetZZ *0;//* 5; // 2345
 
 // Try removing 1.00037 and 0.99999. If you must keep them, ensure they are used in both directions consistently.
 
@@ -1306,6 +1314,152 @@ private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER; // 0.4761
 private double metersPerChunk() {
     return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
 }
+
+public int[] computeIslandBaseFor(double lat, double lng) {
+
+    int gridX = (int) Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
+
+    int gridZ = (int) Math.floor((lat + 90.0) / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
+
+    int baseChunkX = gridX * ISLAND_STRIDE_CHUNKS;
+
+    int baseChunkZ = gridZ * ISLAND_STRIDE_CHUNKS;
+
+    return new int[]{baseChunkX, baseChunkZ};
+
+}
+
+
+
+public void setPlayerAnchor(UUID playerId, double lat, double lng, int baseChunkX, int baseChunkZ) {
+
+    if (playerId == null) return;
+
+
+
+    double mx = Math.toRadians(lng) * EARTH_RADIUS;
+
+    double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
+
+
+
+    double metersZ = -mx;
+
+    double metersX = -my;
+
+
+
+    double metersPerChunk = metersPerChunk();
+
+    double offXX = metersX - baseChunkX * metersPerChunk;
+
+    double offZZ = metersZ - baseChunkZ * metersPerChunk;
+
+
+
+    anchorXXm.put(playerId, offXX);
+
+    anchorZZm.put(playerId, offZZ);
+
+}
+
+
+
+public double[] minecraftToLatLng(UUID playerId, int chunkX, int chunkZ) {
+
+    if (playerId == null) {
+
+        return minecraftToLatLng(chunkX, chunkZ);
+
+    }
+
+
+
+    Double offXX = anchorXXm.get(playerId);
+
+    Double offZZ = anchorZZm.get(playerId);
+
+    if (offXX == null || offZZ == null) {
+
+        return minecraftToLatLng(chunkX, chunkZ);
+
+    }
+
+
+
+    double metersPerChunk = metersPerChunk();
+
+    double metersZ = (chunkX * metersPerChunk + offXX);
+
+    double metersX = ((chunkZ * metersPerChunk + offZZ));
+
+
+
+    metersX = -metersX;
+
+    metersZ = -metersZ;
+
+
+
+    double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
+
+    double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
+
+
+
+    return new double[]{lat, lng};
+
+}
+
+
+
+public int[] latLngToMinecraft(UUID playerId, double lat, double lng) {
+
+    if (playerId == null) {
+
+        return latLngToMinecraft(lat, lng);
+
+    }
+
+
+
+    Double offXX = anchorXXm.get(playerId);
+
+    Double offZZ = anchorZZm.get(playerId);
+
+    if (offXX == null || offZZ == null) {
+
+        return latLngToMinecraft(lat, lng);
+
+    }
+
+
+
+    double mx = Math.toRadians(lng) * EARTH_RADIUS;
+
+    double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
+
+
+
+    double metersZ = -mx;
+
+    double metersX = -my;
+
+
+
+    double metersPerChunk = metersPerChunk();
+
+    int chunkZ = (int) Math.floor((metersZ - offZZ) / metersPerChunk);
+
+    int chunkX = (int) Math.floor((metersX - offXX) / metersPerChunk);
+
+
+
+    return new int[]{chunkX, chunkZ};
+
+}
+
+
 
 public double[] minecraftToLatLng(int chunkX, int chunkZ) {
     double metersPerChunk = metersPerChunk();

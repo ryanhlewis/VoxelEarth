@@ -637,8 +637,11 @@ public class VoxelEarth extends JavaPlugin {
                     }
                     getMovementListener().setReferenceLatLng(p.getUniqueId(), latLng[0], latLng[1]);
 
-                    // Convert lat/lng
-                    int[] chunkCoords = gen.latLngToMinecraft(latLng[0], latLng[1]);
+                    int[] islandBase = gen.computeIslandBaseFor(latLng[0], latLng[1]);
+                    gen.setPlayerAnchor(p.getUniqueId(), latLng[0], latLng[1], islandBase[0], islandBase[1]);
+
+                    // Convert lat/lng using the per-player anchor
+                    int[] chunkCoords = gen.latLngToMinecraft(p.getUniqueId(), latLng[0], latLng[1]);
                     int[] playerCoords = gen.latLngToBlock(latLng[0], latLng[1]);
 
                     // Capture into finals for inner lambda
@@ -701,8 +704,11 @@ public class VoxelEarth extends JavaPlugin {
                         gen.notifyProgress(target.getUniqueId(), 10, "Geocoded " + location);
                     }
 
+                    int[] islandBase = gen.computeIslandBaseFor(latLng[0], latLng[1]);
+                    gen.setPlayerAnchor(target.getUniqueId(), latLng[0], latLng[1], islandBase[0], islandBase[1]);
+
                     // Convert lat/lng
-                    int[] chunkCoords = gen.latLngToMinecraft(latLng[0], latLng[1]);
+                    int[] chunkCoords = gen.latLngToMinecraft(target.getUniqueId(), latLng[0], latLng[1]);
                     int[] playerCoords = gen.latLngToBlock(latLng[0], latLng[1]);
 
                     final int cx = chunkCoords[0];

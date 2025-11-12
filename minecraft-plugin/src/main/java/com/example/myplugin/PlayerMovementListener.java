@@ -174,7 +174,7 @@ public void markVisitArrived(UUID id) {
         // if (latLng == null) {
         //     latLng = generator.minecraftToLatLng(absTileX, absTileZ);
         // }
-        double[] latLng = generator.minecraftToLatLng(absTileX, absTileZ);
+        double[] latLng = generator.minecraftToLatLng(pid, absTileX, absTileZ);
         double lat = latLng[0];
         double lng = latLng[1];
 
