@@ -83,7 +83,7 @@ final class TilesDownloader implements AutoCloseable {
         // Gather .glb URLs via BFS over tilesets (fully parallel, bounded)
         List<URI> glbUris = collectGlbUris(apiKey, region);
 
-        Log.info("[INFO] Found " + glbUris.size() + " .glb tile(s).");
+        Log.info("[INFO] Found " + glbUris.size() + " NEW .glb tile(s).");
         if (glbUris.isEmpty()) return List.of();
 
         // Download all .glb (parallel)
@@ -112,7 +112,7 @@ final class TilesDownloader implements AutoCloseable {
         Sphere region = new Sphere(centerECEF, radiusMeters);
 
         List<URI> glbUris = collectGlbUris(apiKey, region);
-        Log.info("[INFO] Found " + glbUris.size() + " .glb tile(s).");
+        Log.info("[INFO] Found " + glbUris.size() + " NEW .glb tile(s).");
         Map<String, byte[]> out = new ConcurrentHashMap<>();
         if (glbUris.isEmpty()) return out;
 
@@ -129,6 +129,10 @@ final class TilesDownloader implements AutoCloseable {
                 try {
                     String id = tileIdentifier(uri);
                     String sha = sha1Hex(id);
+                    if (TileDownloader.isShaProcessed(sha)) {
+                        log("[SKIP] downloadAllToMemory: already processed tile sha=%s (%s)", sha, uri);
+                        return;
+                    }
                     HttpRequest req = HttpRequest.newBuilder(uri)
                             .timeout(Duration.ofSeconds(60))
                             .GET().build();
@@ -224,7 +228,14 @@ final class TilesDownloader implements AutoCloseable {
         Optional<String> ctype = rsp.headers().firstValue("content-type");
         if (ctype.isPresent() && !ctype.get().toLowerCase(Locale.ROOT).contains("application/json")) {
             // Some leaves are binary GLBs; treat this URL as a GLB to download later
-            results.add(tilesetUri);
+            // Filter by global processed SHA
+            String id = tileIdentifier(tilesetUri);
+            String sha = sha1Hex(id);
+            if (TileDownloader.isShaProcessed(sha)) {
+                log("[SKIP] BFS: leaf GLB already processed sha=%s (%s)", sha, tilesetUri);
+            } else {
+                results.add(tilesetUri);
+            }
             return;
         }
 
@@ -290,7 +301,14 @@ final class TilesDownloader implements AutoCloseable {
 
             String s = contentUri.toString().toLowerCase(Locale.ROOT);
             if (s.endsWith(".glb")) {
-                results.add(contentUri);
+                // Filter GLB leaves by global processed SHA
+                String id = tileIdentifier(contentUri);
+                String sha = sha1Hex(id);
+                if (TileDownloader.isShaProcessed(sha)) {
+                    log("[SKIP] BFS: GLB already processed sha=%s (%s)", sha, contentUri);
+                } else {
+                    results.add(contentUri);
+                }
             } else {
                 // sub-tileset; fan out
                 submitTileset(contentUri, apiKey, sessionRef, region, results, tasks, done);
@@ -303,6 +321,12 @@ final class TilesDownloader implements AutoCloseable {
         try {
             String id = tileIdentifier(glbUri); // path+query minus key/session
             String sha = sha1Hex(id);
+
+            if (TileDownloader.isShaProcessed(sha)) {
+                log("[SKIP] downloadOne: already processed tile sha=%s (%s)", sha, glbUri);
+                return null;
+            }
+
             File out = new File(outDir, sha + ".glb");
 
             if (out.isFile()) {

@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.function.IntConsumer;
 
 /**
@@ -230,37 +229,15 @@ public final class JavaCpuVoxelizer {
 
         Arrays.fill(bestD2, Float.POSITIVE_INFINITY);
 
-        int threads = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), slabCount));
-
-        logVerbosef(verbose, "[Raster] slabs=%d  threads=%d", slabCount, threads);
-
-        ExecutorService pool = Executors.newWorkStealingPool(threads);
-
-        List<Future<Integer>> futures = new ArrayList<>(slabCount);
-
-        for (int s = 0; s < slabCount; ++s) {
-
-            final int slabIndex = s;
-
-            final int zStart = slabIndex * slabH;
-
-            final int zEnd = Math.min(grid, zStart + slabH);
-
-            final IntArray list = slabBins[slabIndex];
-
-            futures.add(pool.submit(() ->
-
-                rasterizeSlab(soa, list, zStart, zEnd, grid, unit, FLIP_V, occ, colors, bestD2)
-
-            ));
-
-        }
+        logVerbosef(verbose, "[Raster] slabs=%d (single-threaded)", slabCount);
 
         int filled = 0;
-
-        for (Future<Integer> f : futures) filled += f.get();
-
-        pool.shutdown();
+        for (int s = 0; s < slabCount; ++s) {
+            int zStart = s * slabH;
+            int zEnd = Math.min(grid, zStart + slabH);
+            IntArray list = slabBins[s];
+            filled += rasterizeSlab(soa, list, zStart, zEnd, grid, unit, FLIP_V, occ, colors, bestD2);
+        }
 
         logVerbosef(verbose, "[Raster] tri=%d  filled=%d", soa.n, filled);
 

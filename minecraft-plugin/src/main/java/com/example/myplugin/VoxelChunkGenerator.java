@@ -33,7 +33,6 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class VoxelChunkGenerator extends ChunkGenerator {
@@ -42,10 +41,18 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private static final double LNG_ORIGIN = 14.451093643141064;
     private static final String API_KEY = "AIzaSy..."; // Your API key here
     private TileDownloader tileDownloader;
+
+    // Tile index + voxel cache
     private final ConcurrentHashMap<String, IndexedTile> indexedBlocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JavaCpuVoxelizer.VoxelPayload> voxelCache = new ConcurrentHashMap<>();
+
+    // Tiles that have already been placed for a given base chunk (tileId@chunkX,chunkZ)
+    private final Set<String> placedTileKeys = ConcurrentHashMap.newKeySet();
+
     private static final List<MaterialColor> MATERIAL_COLORS = new ArrayList<>();
     private Map<Integer, Material> colorToMaterialCache = new HashMap<>();
+
+    // Per-player global 3D origin (ECEF) for ENU ↔ lat/lng
     private Map<UUID, double[]> playerOrigins = new ConcurrentHashMap<>();
 
     private Map<UUID, Integer> playerXOffsets = new ConcurrentHashMap<>();
@@ -62,6 +69,22 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private final Deque<int[]> islandBag = new ArrayDeque<>();
     private final Object islandBagLock = new Object();
     private final SecureRandom islandRandom = new SecureRandom();
+
+    // Per-player “loaded area” cache so moveload stays idle in already-loaded regions
+    private static final class LoadedArea {
+        final double lat;
+        final double lng;
+        final double radiusMeters;
+        LoadedArea(double lat, double lng, double radiusMeters) {
+            this.lat = lat;
+            this.lng = lng;
+            this.radiusMeters = radiusMeters;
+        }
+    }
+    private final Map<UUID, List<LoadedArea>> loadedAreas = new ConcurrentHashMap<>();
+
+    // Last visit spawn (so if we skip a moveload we at least return something stable)
+    private final Map<UUID, int[]> lastVisitSpawn = new ConcurrentHashMap<>();
 
     // Progress tracking (per player)
     private final Map<UUID, Integer> lastPct = new ConcurrentHashMap<>();
@@ -93,13 +116,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         Log.warning(message);
     }
 
-    // VISIT tile radius (for /visit)
-    private volatile int visitTileRadius = 200;   // default; was 50 in earlier example
+    // VISIT tile radius (for /visit) – interpreted as meters for TileDownloader
+    private volatile int visitTileRadius = 200;   // default
     public void setVisitTileRadius(int tiles) { this.visitTileRadius = Math.max(1, tiles); }
     public int getVisitTileRadius() { return visitTileRadius; }
 
     // MOVEMENT tile radius (for PlayerMovementListener-triggered loads)
-    private volatile int moveTileRadius = 100;    // default; previously "single tile loading" ~25
+    private volatile int moveTileRadius = 100;    // default
     public void setMoveTileRadius(int tiles) { this.moveTileRadius = Math.max(1, tiles); }
     public int getMoveTileRadius() { return moveTileRadius; }
 
@@ -111,7 +134,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         playerZOffsets.remove(playerId);
         lastPct.remove(playerId);
         lastStage.remove(playerId);
-        // clear any existing HUD
+        // NOTE: we do NOT clear loadedAreas here – previous islands remain “loaded” for moveload
         hideProgressBoard(playerId);
     }
 
@@ -132,7 +155,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final long CLEANUP_INTERVAL = TimeUnit.HOURS.toMillis(1); // 1 hour
 
-    // Prefer FAWE when available; fall back to BlockChanger automatically.
+    // Prefer FAWE/WorldEdit when available; fall back to BlockChanger automatically.
     private final boolean faweAvailable = detectFawe();
     private record Voxel(int x, int y, int z, Material material) {}
 
@@ -191,7 +214,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         debug("Default scaleFactor (metersPerBlock): " + scaleFactor);
         debug("Using a tile radius of 25 for single tile loading.");
 
-        tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25); 
+        tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25);
         loadMaterialColors();
     }
 
@@ -202,7 +225,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         int prev = lastPct.getOrDefault(playerId, Integer.MIN_VALUE);
         String prevStage = lastStage.get(playerId);
         boolean important = (pct == 100 || pct == -1);
-        if (!important && (Math.abs(pct - prev) < 2) && java.util.Objects.equals(prevStage, stage)) return;
+        if (!important && (Math.abs(pct - prev) < 2) && Objects.equals(prevStage, stage)) return;
         lastPct.put(playerId, pct);
         lastStage.put(playerId, stage);
         Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
@@ -216,10 +239,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                              + ChatColor.WHITE + clamped + "%";
             String stageLine = (pct >= 0 ? ChatColor.GRAY.toString() : ChatColor.RED.toString()) + trimForScore(stage, MAX_STAGE_LEN);
 
-            // update display title
             try { obj.setDisplayName(SCOREBOARD_TITLE); } catch (Throwable ignored) {}
 
-            // replace previous entries with new ones (stable line order)
             String prevBar = prevBarEntry.get(playerId);
             if (prevBar != null) board.resetScores(prevBar);
             obj.getScore(barLine).setScore(2);
@@ -230,7 +251,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             obj.getScore(stageLine).setScore(1);
             prevStageEntry.put(playerId, stageLine);
 
-            // auto-hide after finish/error
             if (pct == 100 || pct == -1) {
                 Bukkit.getScheduler().runTaskLater(
                         Bukkit.getPluginManager().getPlugin("VoxelEarth"),
@@ -313,7 +333,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             Class.forName("com.sk89q.worldedit.WorldEdit");
             Class.forName("com.sk89q.worldedit.bukkit.BukkitAdapter");
             Class.forName("com.sk89q.worldedit.math.BlockVector3");
-            Class.forName("com.sk89q.worldedit.util.SideEffectSet");
             Class.forName("com.sk89q.worldedit.world.World");
             return true;
         } catch (Throwable t) {
@@ -321,15 +340,19 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         }
     }
 
-
-    public void regenChunks(World world, 
-                            double scaleX, double scaleY, double scaleZ, 
+    public void regenChunks(World world,
+                            double scaleX, double scaleY, double scaleZ,
                             double newOffsetX, double newOffsetY, double newOffsetZ) {
 
         debug("regenChunks called with scaleX=" + scaleX + ", scaleY=" + scaleY + ", scaleZ=" + scaleZ);
         debug("offsets: X=" + newOffsetX + ", Y=" + newOffsetY + ", Z=" + newOffsetZ);
 
         indexedBlocks.clear();
+        voxelCache.clear();
+        TileDownloader.clearProcessedTiles();  // NEW: allow full regen to re-fetch tiles
+        placedTileKeys.clear();
+        loadedAreas.clear();
+        lastVisitSpawn.clear();
         loadMaterialColors();
         debug("MATERIAL_COLORS size: " + MATERIAL_COLORS.size());
 
@@ -363,7 +386,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
     private void processChunksInBatches(List<Chunk> chunks, World world) {
         AtomicInteger currentIndex = new AtomicInteger(0);
-        int batchSize = 1;
 
         Bukkit.getScheduler().runTaskTimer(Bukkit.getPluginManager().getPlugin("VoxelEarth"), task -> {
             if (currentIndex.get() >= chunks.size()) {
@@ -475,9 +497,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             try {
                 JavaCpuVoxelizer.VoxelPayload payload = voxelCache.get(tile.tileId());
                 if (payload != null) {
-                debug("Voxel cache hit: " + tile.tileId());
+                    debug("Voxel cache hit: " + tile.tileId());
                 } else {
-                debug("Voxel cache miss: " + tile.tileId());
+                    debug("Voxel cache miss: " + tile.tileId());
                     payload = voxelizer.voxelizeToMemory(tile.tileId(), tile.glbBytes());
                     if (payload != null) {
                         voxelCache.put(tile.tileId(), payload);
@@ -507,6 +529,13 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         for (VoxelizedTile tile : voxelTiles) {
             futures.add(executor.submit(() -> {
                 try {
+                    // If this tile was already placed for this base chunk, don’t re-index it.
+                    String placementKey = tilePlacementKey(tile.tileId, chunkX, chunkZ);
+                    if (placedTileKeys.contains(placementKey)) {
+                        debug("Skipping re-index for already placed tile " + tile.tileId +
+                              " at base chunk " + chunkX + "," + chunkZ);
+                        return;
+                    }
                     processVoxelizedTile(tile, chunkX, chunkZ);
                 } catch (Exception e) {
                     debug("Error loading voxel tile " + tile.tileId + ": " + e.getMessage());
@@ -575,9 +604,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         debug("Block bounding box for " + tile.tileId + ": X[" + minX + "," + maxX + "] Y[" + minY + "," + maxY + "] Z[" + minZ + "," + maxZ + "]");
     }
 
-
-    private static final double MAX_COLOR_DISTANCE = 30.0;
-
     private Material mapRgbaToMaterial(JSONArray rgbaArray) {
         return mapRgbaToMaterial(rgbaArray.getInt(0), rgbaArray.getInt(1), rgbaArray.getInt(2));
     }
@@ -614,17 +640,10 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         }
     }
 
-    private double colorDistance(Color c1, Color c2) {
-        int dr = c1.getRed() - c2.getRed();
-        int dg = c1.getGreen() - c2.getGreen();
-        int db = c1.getBlue() - c2.getBlue();
-        return Math.sqrt(dr * dr + dg * dg + db * db);
-    }
-
     public void loadJson(String filename, double scaleX, double scaleY, double scaleZ, double offsetX, double offsetY, double offsetZ) throws IOException {
         File file = new File(filename);
         if (!file.exists()) {
-        debug("File " + filename + " does not exist.");
+            debug("File " + filename + " does not exist.");
             return;
         }
 
@@ -633,8 +652,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         String baseName = file.getName().replace(".json", "");
         try (FileReader reader = new FileReader(file)) {
             JSONObject json = new JSONObject(new JSONTokener(reader));
-
-            double[] tileTranslation = new double[3];
 
             if (!json.has("blocks") || !json.has("xyzi")) {
                 debug("JSON file " + filename + " missing 'blocks' or 'xyzi'.");
@@ -677,8 +694,8 @@ public class VoxelChunkGenerator extends ChunkGenerator {
             indexedBlocks.put(baseName, new IndexedTile(baseName, voxels));
 
             Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
-            debug("Starting chunk regeneration after loadJson...");
-            debug("IndexedBlocks length: " + indexedBlocks.size());
+                debug("Starting chunk regeneration after loadJson...");
+                debug("IndexedBlocks length: " + indexedBlocks.size());
 
                 World world = Bukkit.getWorld("world");
                 if (world == null) {
@@ -704,122 +721,134 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         // Not generating anything directly here
     }
 
-    public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Consumer<int[]> callback) {
-        Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
-            try {
-                // Global origin (unchanged)
-                File originTranslationFile = new File("origin_translation.json");
-                if (originTranslationFile.exists()) {
-                    try (FileReader reader = new FileReader(originTranslationFile)) {
-                        JSONArray originArray = new JSONArray(new JSONTokener(reader));
-                        originEcef = new double[]{
+public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Consumer<int[]> callback) {
+    Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugin("VoxelEarth"), () -> {
+        try {
+            // Global origin (unchanged)
+            File originTranslationFile = new File("origin_translation.json");
+            if (originTranslationFile.exists()) {
+                try (FileReader reader = new FileReader(originTranslationFile)) {
+                    JSONArray originArray = new JSONArray(new JSONTokener(reader));
+                    originEcef = new double[]{
                             originArray.getDouble(0),
                             -originArray.getDouble(2),
                             originArray.getDouble(1)
-                        };
-                    }
+                    };
                 }
+            }
 
-                // CHANGED: handle origin based on visit/non-visit
-                if (isVisit) {
-                    // Fresh visit -> clear any stale state and force null origin
-                    beginVisit(playerUUID); // NEW
-                    tileDownloader.setOrigin(null); // NEW: ensure no stale origin affects voxelization
-                } else {
-                    double[] playerOrigin = playerOrigins.get(playerUUID);
-                    tileDownloader.setOrigin(playerOrigin); // may be null; that's fine
-                }
+            if (isVisit) {
+                // Fresh visit -> clear per-visit state and ensure no stale origin
+                beginVisit(playerUUID);
+                tileDownloader.setOrigin(null);
+            } else {
+                double[] playerOrigin = playerOrigins.get(playerUUID);
+                tileDownloader.setOrigin(playerOrigin); // may be null; that's fine
+            }
 
-                int[] blockLocation = new int[]{210, 70, 0};
+            int[] blockLocation = new int[]{210, 70, 0};
 
-                double[] latLng = minecraftToLatLng(playerUUID, tileX, tileZ);
-                debug("loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
+            double[] latLng = minecraftToLatLng(playerUUID, tileX, tileZ);
+            debug("loadChunk: tileX=" + tileX + ", tileZ=" + tileZ + " -> lat/lng=" + latLng[0] + "," + latLng[1]);
 
-                tileDownloader.setCoordinates(latLng[1], latLng[0]);
-                notifyProgress(playerUUID, 15, "Preparing download ...");
-                
-                // ðŸ”´ THIS is the key line:
-                int activeRadius = isVisit ? getVisitTileRadius() : getMoveTileRadius();
-                tileDownloader.setRadius(activeRadius);
+            // Decide radius first (used for both downloader and loadedAreas logic)
+            int activeRadius = isVisit ? getVisitTileRadius() : getMoveTileRadius();
 
-                debug("Downloading single tile at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius " + activeRadius);
-                notifyProgress(playerUUID, 20, "Downloading tiles ...");
-                List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
-                debug("Downloaded tile payloads: " + downloadedTiles.size());
+            // MOVEMENT loads: if this region is already covered by a previously loaded area,
+            // DO NOTHING (no download, no voxelizer, no placement, no HUD spam).
+            if (!isVisit && isWithinLoadedArea(playerUUID, latLng[0], latLng[1], activeRadius)) {
+                debugf("loadChunk: moveload region already loaded for %s (lat=%.6f, lng=%.6f, r=%dm) – skipping.",
+                        playerUUID, latLng[0], latLng[1], activeRadius);
+                notifyProgress(playerUUID, 0, "Idle");
+                int[] last = lastVisitSpawn.get(playerUUID);
+                callback.accept(last != null ? last.clone() : blockLocation);
+                return;
+            }
 
-                if (downloadedTiles.isEmpty()) {
-                    debug("No tiles downloaded.");
-                    notifyProgress(playerUUID, -1, "No tiles available for this area.");
-                    callback.accept(blockLocation);
-                    return;
-                }
+            tileDownloader.setCoordinates(latLng[1], latLng[0]);
+            notifyProgress(playerUUID, 15, "Preparing download ...");
 
-                debug("Running voxelizer for in-memory tiles...");
-                notifyProgress(playerUUID, 55, "Preparing voxelizer ...");
-                List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, playerUUID);
-                if (voxelTiles.isEmpty()) {
-                    notifyProgress(playerUUID, -1, "Voxelization failed.");
-                    callback.accept(blockLocation);
-                    return;
-                }
+            // Radius for TileDownloader
+            tileDownloader.setRadius(activeRadius);
 
-                Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
+            debug("Downloading tiles at lat=" + latLng[0] + ", lng=" + latLng[1] + " with radius " + activeRadius);
+            notifyProgress(playerUUID, 20, "Downloading tiles ...");
+            List<TileDownloader.TilePayload> downloadedTiles = tileDownloader.downloadTiles();
+            debug("Downloaded tile payloads: " + downloadedTiles.size());
 
-                int adjustedTileX = tileX;
-                int adjustedTileZ = tileZ;
+            if (downloadedTiles.isEmpty()) {
+                debug("No tiles downloaded.");
+                notifyProgress(playerUUID, -1, "No tiles available for this area.");
+                callback.accept(blockLocation);
+                return;
+            }
 
-                if (isVisit) {
-                    playerXOffsets.put(playerUUID, tileX);
-                    playerZOffsets.put(playerUUID, tileZ);
-                    debug("Visit mode: storing offsets tileX=" + tileX + ", tileZ=" + tileZ);
-                } else {
-                    Integer storedXOffset = playerXOffsets.get(playerUUID);
-                    Integer storedZOffset = playerZOffsets.get(playerUUID);
-                    if (storedXOffset != null) adjustedTileX = storedXOffset;
-                    if (storedZOffset != null) adjustedTileZ = storedZOffset;
-                    debug("Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
-                }
+            debug("Running voxelizer for in-memory tiles...");
+            notifyProgress(playerUUID, 55, "Preparing voxelizer ...");
+            List<VoxelizedTile> voxelTiles = voxelizeTiles(downloadedTiles, playerUUID);
+            if (voxelTiles.isEmpty()) {
+                notifyProgress(playerUUID, -1, "Voxelization failed.");
+                callback.accept(blockLocation);
+                return;
+            }
 
-                ingestVoxelizedTiles(voxelTiles, adjustedTileX, adjustedTileZ, playerUUID);
-                Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
-                currentKeys.removeAll(previousKeys);
+            Set<String> previousKeys = new HashSet<>(indexedBlocks.keySet());
 
-                String initialTileKey = null;
-                if (!currentKeys.isEmpty()) {
-                    initialTileKey = currentKeys.iterator().next();
-                } else if (!indexedBlocks.isEmpty()) {
-                    initialTileKey = indexedBlocks.keySet().iterator().next();
-                } else {
-                    debug("No tiles loaded, cannot compute block location.");
-                    callback.accept(blockLocation);
-                    return;
-                }
+            int adjustedTileX = tileX;
+            int adjustedTileZ = tileZ;
 
-                debug("Initial tile key: " + initialTileKey);
+            if (isVisit) {
+                playerXOffsets.put(playerUUID, tileX);
+                playerZOffsets.put(playerUUID, tileZ);
+                debug("Visit mode: storing offsets tileX=" + tileX + ", tileZ=" + tileZ);
+            } else {
+                Integer storedXOffset = playerXOffsets.get(playerUUID);
+                Integer storedZOffset = playerZOffsets.get(playerUUID);
+                if (storedXOffset != null) adjustedTileX = storedXOffset;
+                if (storedZOffset != null) adjustedTileZ = storedZOffset;
+                debug("Non-visit mode: using stored offsets adjustedTileX=" + adjustedTileX + ", adjustedTileZ=" + adjustedTileZ);
+            }
 
-                final AtomicInteger yOffset = new AtomicInteger(0);
-                final int desiredY = 70;
+            ingestVoxelizedTiles(voxelTiles, adjustedTileX, adjustedTileZ, playerUUID);
+            Set<String> currentKeys = new HashSet<>(indexedBlocks.keySet());
+            currentKeys.removeAll(previousKeys);
 
-                debug("Starting chunk regeneration...");
-                debug("IndexedBlocks size: " + indexedBlocks.size());
-                notifyProgress(playerUUID, 90, "Placing blocks ...");
+            String initialTileKey = null;
+            if (!currentKeys.isEmpty()) {
+                initialTileKey = currentKeys.iterator().next();
+            } else if (!indexedBlocks.isEmpty()) {
+                initialTileKey = indexedBlocks.keySet().iterator().next();
+            } else {
+                debug("No tiles loaded, cannot compute block location.");
+                callback.accept(blockLocation);
+                return;
+            }
 
-                World world = Bukkit.getWorld("world");
-                if (world == null) {
-                    debug("World 'world' not found!");
-                    notifyProgress(playerUUID, -1, "World not found");
-                    callback.accept(blockLocation);
-                    return;
-                }
+            debug("Initial tile key: " + initialTileKey);
 
-                IndexedTile indexMap1 = indexedBlocks.get(initialTileKey);
-                if (indexMap1 != null) {
-                    int minYInTile = indexMap1.voxels().stream()
-                            .mapToInt(Voxel::y)
-                            .min()
-                            .orElse(0);
+            final AtomicInteger yOffset = new AtomicInteger(0);
+            final int desiredY = 70;
 
-                    yOffset.set(desiredY - minYInTile);
+            debug("Starting chunk regeneration...");
+            debug("IndexedBlocks size: " + indexedBlocks.size());
+            notifyProgress(playerUUID, 90, "Placing blocks ...");
+
+            World world = Bukkit.getWorld("world");
+            if (world == null) {
+                debug("World 'world' not found!");
+                notifyProgress(playerUUID, -1, "World not found");
+                callback.accept(blockLocation);
+                return;
+            }
+
+            IndexedTile indexMap1 = indexedBlocks.get(initialTileKey);
+            if (indexMap1 != null) {
+                int minYInTile = indexMap1.voxels().stream()
+                        .mapToInt(Voxel::y)
+                        .min()
+                        .orElse(0);
+
+                yOffset.set(desiredY - minYInTile);
                 debug("Computed yOffset: " + yOffset.get());
 
                 if (isVisit) {
@@ -840,60 +869,93 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                     }
                 }
 
-                    if (!indexMap1.isPlaced()) {
-                        debug("Placing blocks for initial tile...");
-                        notifyProgress(playerUUID, 92, "Placing first tile ...");
-                        placeBlocks(world, indexMap1.voxels(), yOffset.get());
-                        indexMap1.markPlaced();
-                    }
+                // Place initial tile if not yet placed for this base chunk
+                String placementKey = tilePlacementKey(initialTileKey, adjustedTileX, adjustedTileZ);
+                if (!placedTileKeys.contains(placementKey) && !indexMap1.isPlaced()) {
+                    debug("Placing blocks for initial tile (FAWE=" + faweAvailable + ")...");
+                    notifyProgress(playerUUID, 92, "Placing first tile ...");
+                    placeBlocks(world, indexMap1.voxels(), yOffset.get());
+                    indexMap1.markPlaced();
+                    placedTileKeys.add(placementKey);
 
-                    if (!indexMap1.voxels().isEmpty()) {
-                        Voxel first = indexMap1.voxels().get(0);
-                        blockLocation[0] = first.x();
-                        blockLocation[1] = first.y() + yOffset.get();
-                        blockLocation[2] = first.z();
-
-                        debug("First block location: " + Arrays.toString(blockLocation));
-                    }
-                }
-
-                final String finalInitialTileKey = initialTileKey;
-
-                indexedBlocks.forEach((tileKey, indexMap) -> {
-                    if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !indexMap.isPlaced()) {
-                        debug("Placing blocks for secondary tile: " + tileKey);
-                        // Avoid long filenames in HUD; keep it tidy.
-                        notifyProgress(playerUUID, 94, "Placing blocks ...");
-                        placeBlocks(world, indexMap.voxels(), yOffset.get());
-                        indexMap.markPlaced();
-                    }
-                });
-
-                debug("Chunk regeneration completed.");
-                if (isVisit) {
-                    notifyProgress(playerUUID, 98, "Teleporting ...");
+                    // Tile is now physically in the world -> mark globally processed
+                    TileDownloader.markTileProcessed(initialTileKey);
                 } else {
-                    // Movement loads shouldn't get stuck--settle on Idle.
-                    notifyProgress(playerUUID, 0, "Idle");
+                    debug("Initial tile already placed for base chunk; skipping placement.");
                 }
-                callback.accept(blockLocation);
 
-            } catch (IOException | InterruptedException e) {
-                debug("Exception in loadChunk:");
-                e.printStackTrace();
-                int[] blockLocation = new int[]{210, 70, 0};
-                notifyProgress(playerUUID, -1, "Load failed: " + e.getMessage());
-                callback.accept(blockLocation);
+                if (!indexMap1.voxels().isEmpty()) {
+                    Voxel first = indexMap1.voxels().get(0);
+                    blockLocation[0] = first.x();
+                    blockLocation[1] = first.y() + yOffset.get();
+                    blockLocation[2] = first.z();
+
+                    debug("First block location: " + Arrays.toString(blockLocation));
+                }
             }
-        });
-    }
+
+            final String finalInitialTileKey = initialTileKey;
+            final int baseChunkXForTiles = adjustedTileX;
+            final int baseChunkZForTiles = adjustedTileZ;
+
+            indexedBlocks.forEach((tileKey, indexMap) -> {
+                if (!tileKey.equals(finalInitialTileKey) && indexMap != null && !indexMap.isPlaced()) {
+                    String placementKey = tilePlacementKey(tileKey, baseChunkXForTiles, baseChunkZForTiles);
+                    if (placedTileKeys.contains(placementKey)) {
+                        debug("Skipping placement for already placed secondary tile " + tileKey +
+                                " at base chunk " + baseChunkXForTiles + "," + baseChunkZForTiles);
+                        return;
+                    }
+                    debug("Placing blocks for secondary tile: " + tileKey + " (FAWE=" + faweAvailable + ")");
+                    notifyProgress(playerUUID, 94, "Placing blocks ...");
+                    placeBlocks(world, indexMap.voxels(), yOffset.get());
+                    indexMap.markPlaced();
+                    placedTileKeys.add(placementKey);
+
+                    // Mark this tile as globally processed too
+                    TileDownloader.markTileProcessed(tileKey);
+                }
+            });
+
+            debug("Chunk regeneration completed.");
+
+            // Mark area as loaded for this player so moveload in this region becomes a no-op
+            LoadedArea newArea = new LoadedArea(latLng[0], latLng[1], activeRadius);
+            loadedAreas.computeIfAbsent(playerUUID, id -> new CopyOnWriteArrayList<>()).add(newArea);
+
+            if (isVisit) {
+                lastVisitSpawn.put(playerUUID, blockLocation.clone());
+                notifyProgress(playerUUID, 98, "Teleporting ...");
+            } else {
+                notifyProgress(playerUUID, 0, "Idle");
+            }
+            callback.accept(blockLocation);
+
+        } catch (IOException | InterruptedException e) {
+            debug("Exception in loadChunk:");
+            e.printStackTrace();
+            int[] blockLocation = new int[]{210, 70, 0};
+            notifyProgress(playerUUID, -1, "Load failed: " + e.getMessage());
+            callback.accept(blockLocation);
+        }
+    });
+}
 
     private void placeBlocks(World world, List<Voxel> blockList, int yOffset) {
         if (blockList == null || blockList.isEmpty()) {
+            debug("placeBlocks: no voxels to place.");
             return;
         }
-        if (faweAvailable && placeBlocksWithFaweSession(world, blockList, yOffset)) {
-            return;
+        if (faweAvailable) {
+            debug("placeBlocks: attempting FAWE/WorldEdit (EditSession) placement for " + blockList.size() + " voxels.");
+            if (placeBlocksWithFaweSession(world, blockList, yOffset)) {
+                debug("placeBlocks: FAWE/WorldEdit placement path succeeded.");
+                return;
+            } else {
+                debug("placeBlocks: FAWE/WorldEdit path failed; falling back to BlockChanger.");
+            }
+        } else {
+            debug("placeBlocks: FAWE not available; using BlockChanger fallback for " + blockList.size() + " voxels.");
         }
         fallbackPlaceBlocksWithBlockChanger(world, blockList, yOffset);
     }
@@ -902,7 +964,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         if (world == null) {
             return false;
         }
-        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+        debug("placeBlocksWithFaweSession: placing " + blockList.size() + " voxels via EditSession.");
         try (EditSession editSession = WorldEdit.getInstance()
                 .newEditSessionBuilder()
                 .world(BukkitAdapter.adapt(world))
@@ -920,7 +982,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 }
                 BlockState state = BukkitAdapter.adapt(material.createBlockData());
                 editSession.setBlock(BlockVector3.at(x, y, z), state);
-                modifiedChunks.add(world.getChunkAt(x >> 4, z >> 4));
             }
         } catch (Throwable t) {
             debug("placeBlocksWithFaweSession error: " + t);
@@ -930,7 +991,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     private void fallbackPlaceBlocksWithBlockChanger(World world, List<Voxel> blockList, int yOffset) {
-        Set<Chunk> modifiedChunks = ConcurrentHashMap.newKeySet();
+        debug("fallbackPlaceBlocksWithBlockChanger: placing " + blockList.size() + " voxels.");
         for (Voxel voxel : blockList) {
             int newX = voxel.x();
             int newY = voxel.y() + yOffset;
@@ -958,8 +1019,6 @@ public class VoxelChunkGenerator extends ChunkGenerator {
                 itemStack,
                 false
             );
-
-            modifiedChunks.add(world.getChunkAt(blockChunkX, blockChunkZ));
         }
     }
 
@@ -970,256 +1029,224 @@ public class VoxelChunkGenerator extends ChunkGenerator {
         return (lx << 38) | (lz << 12) | ly;
     }
 
-    private static final double EARTH_RADIUS = 6378137.0;  
-    private static final int CHUNK_SIZE = 16;  
+    private static String tilePlacementKey(String tileId, int chunkX, int chunkZ) {
+        return tileId + "@" + chunkX + "," + chunkZ;
+    }
 
-    // private double[] latLngToMeters(double lat, double lng) {
-    //     double x = lng * (Math.PI / 180) * EARTH_RADIUS;
-    //     double z = Math.log(Math.tan((Math.PI / 4) + Math.toRadians(lat) / 2)) * EARTH_RADIUS;
-    //     return new double[]{x, z};
-    // }
+    // ================== Loaded-area helpers ==================
+    private static double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+        double rLat1 = Math.toRadians(lat1);
+        double rLat2 = Math.toRadians(lat2);
+        double dLat = rLat2 - rLat1;
+        double dLon = Math.toRadians(lon2 - lon1);
+        double sinDLat = Math.sin(dLat / 2.0);
+        double sinDLon = Math.sin(dLon / 2.0);
+        double a = sinDLat * sinDLat + Math.cos(rLat1) * Math.cos(rLat2) * sinDLon * sinDLon;
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+        return EARTH_RADIUS * c;
+    }
+
+    private boolean isWithinLoadedArea(UUID playerId, double lat, double lng, double radiusMeters) {
+        List<LoadedArea> areas = loadedAreas.get(playerId);
+        if (areas == null || areas.isEmpty()) return false;
+        for (LoadedArea area : areas) {
+            double dist = distanceMeters(lat, lng, area.lat, area.lng);
+            if (dist + radiusMeters <= area.radiusMeters + 0.5) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final double EARTH_RADIUS = 6378137.0;
+    private static final int CHUNK_SIZE = 16;
 
     int oldOffsetXX = 7677201 - 7677296; // -95
     int oldOffsetZZ = -11936601 - (-11937070); // 469
 
-    // int newOffsetXX = oldOffsetXX * 5;
-    // int newOffsetZZ = oldOffsetZZ * 5;
-    
-// Decide on final constants:
-// metersPerBlock = 2.1
-// metersPerChunk = 2.1 * 16 = 33.6
-// Suppose old offsets were chosen for the old scale; now multiply them by 5 to compensate.
-int newOffsetXX = oldOffsetXX *0;//* 5; // -475
-int newOffsetZZ = oldOffsetZZ *0;//* 5; // 2345
+    int newOffsetXX = oldOffsetXX * 0;
+    int newOffsetZZ = oldOffsetZZ * 0;
 
-// Try removing 1.00037 and 0.99999. If you must keep them, ensure they are used in both directions consistently.
+    private static final double BLOCKS_PER_METER = 2.1;
+    private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER;
+    private double metersPerChunk() {
+        return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
+    }
 
-private static final double BLOCKS_PER_METER = 2.1;
+    public int[] computeIslandBaseFor(double lat, double lng) {
+        int gNorth = (int)Math.floor((lat + 90.0)  / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
+        int gEast  = (int)Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
 
-// So the inverse must be used when turning *blocks -> meters* for lat/lng:
-private static final double METERS_PER_BLOCK = 1.0 / BLOCKS_PER_METER; // 0.476190476...
-private double metersPerChunk() {
-    return CHUNK_SIZE * METERS_PER_BLOCK;  // 16 / 2.1 = 7.6190476 m per chunk
-}
+        int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X <- latitude (north/south)
+        int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z <- longitude (east/west)
+        return new int[]{ baseChunkX, baseChunkZ };
+    }
 
-public int[] computeIslandBaseFor(double lat, double lng) {
-    int gNorth = (int)Math.floor((lat + 90.0)  / 180.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
-    int gEast  = (int)Math.floor((lng + 180.0) / 360.0 * ISLAND_GRID_SPAN) - ISLAND_GRID_SPAN / 2;
+    private void refillIslandBagLocked() {
+        List<int[]> fresh = new ArrayList<>(ISLAND_GRID_SPAN * ISLAND_GRID_SPAN);
+        int half = ISLAND_GRID_SPAN / 2;
+        for (int gx = -half; gx < half; gx++) {
+            for (int gz = -half; gz < half; gz++) {
+                fresh.add(new int[]{ gx * ISLAND_STRIDE_CHUNKS, gz * ISLAND_STRIDE_CHUNKS });
+            }
+        }
+        Collections.shuffle(fresh, islandRandom);
+        islandBag.clear();
+        islandBag.addAll(fresh);
+    }
 
-    int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X <- latitude (north/south)
-    int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z <- longitude (east/west)
-    return new int[]{ baseChunkX, baseChunkZ };
-}
-
-private void refillIslandBagLocked() {
-    List<int[]> fresh = new ArrayList<>(ISLAND_GRID_SPAN * ISLAND_GRID_SPAN);
-    int half = ISLAND_GRID_SPAN / 2;
-    for (int gx = -half; gx < half; gx++) {
-        for (int gz = -half; gz < half; gz++) {
-            fresh.add(new int[]{ gx * ISLAND_STRIDE_CHUNKS, gz * ISLAND_STRIDE_CHUNKS });
+    public int[] allocateNewIslandBase() {
+        synchronized (islandBagLock) {
+            if (islandBag.isEmpty()) {
+                refillIslandBagLocked();
+            }
+            int[] coords = islandBag.pollFirst();
+            if (coords == null) {
+                // This should never happen, but fall back to origin to avoid NPEs.
+                return new int[]{0, 0};
+            }
+            return new int[]{ coords[0], coords[1] };
         }
     }
-    Collections.shuffle(fresh, islandRandom);
-    islandBag.clear();
-    islandBag.addAll(fresh);
-}
 
-public int[] allocateNewIslandBase() {
-    synchronized (islandBagLock) {
-        if (islandBag.isEmpty()) {
-            refillIslandBagLocked();
+    public void setPlayerAnchor(UUID playerId, double lat, double lng, int baseChunkX, int baseChunkZ) {
+
+        if (playerId == null) return;
+
+        double mx = Math.toRadians(lng) * EARTH_RADIUS;
+        double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
+
+        double metersZ = -mx;
+        double metersX = -my;
+
+        double metersPerChunk = metersPerChunk();
+        double offXX = metersX - baseChunkX * metersPerChunk;
+        double offZZ = metersZ - baseChunkZ * metersPerChunk;
+
+        anchorXXm.put(playerId, offXX);
+        anchorZZm.put(playerId, offZZ);
+
+    }
+
+    public double[] minecraftToLatLng(UUID playerId, int chunkX, int chunkZ) {
+
+        if (playerId == null) {
+
+            return minecraftToLatLng(chunkX, chunkZ);
+
         }
-        int[] coords = islandBag.pollFirst();
-        if (coords == null) {
-            // This should never happen, but fall back to origin to avoid NPEs.
-            return new int[]{0, 0};
+
+        Double offXX = anchorXXm.get(playerId);
+        Double offZZ = anchorZZm.get(playerId);
+        if (offXX == null || offZZ == null) {
+
+            return minecraftToLatLng(chunkX, chunkZ);
+
         }
-        return new int[]{ coords[0], coords[1] };
-    }
-}
 
+        double metersPerChunk = metersPerChunk();
 
+        double metersZ = (chunkX * metersPerChunk + offXX);
 
+        double metersX = ((chunkZ * metersPerChunk + offZZ));
 
-public void setPlayerAnchor(UUID playerId, double lat, double lng, int baseChunkX, int baseChunkZ) {
+        metersX = -metersX;
 
-    if (playerId == null) return;
+        metersZ = -metersZ;
 
+        double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
 
+        double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
 
-    double mx = Math.toRadians(lng) * EARTH_RADIUS;
-
-    double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
-
-
-
-    double metersZ = -mx;
-
-    double metersX = -my;
-
-
-
-    double metersPerChunk = metersPerChunk();
-
-    double offXX = metersX - baseChunkX * metersPerChunk;
-
-    double offZZ = metersZ - baseChunkZ * metersPerChunk;
-
-
-
-    anchorXXm.put(playerId, offXX);
-
-    anchorZZm.put(playerId, offZZ);
-
-}
-
-
-
-public double[] minecraftToLatLng(UUID playerId, int chunkX, int chunkZ) {
-
-    if (playerId == null) {
-
-        return minecraftToLatLng(chunkX, chunkZ);
+        return new double[]{lat, lng};
 
     }
 
+    public int[] latLngToMinecraft(UUID playerId, double lat, double lng) {
 
+        if (playerId == null) {
 
-    Double offXX = anchorXXm.get(playerId);
+            return latLngToMinecraft(lat, lng);
 
-    Double offZZ = anchorZZm.get(playerId);
+        }
 
-    if (offXX == null || offZZ == null) {
+        Double offXX = anchorXXm.get(playerId);
 
-        return minecraftToLatLng(chunkX, chunkZ);
+        Double offZZ = anchorZZm.get(playerId);
 
-    }
+        if (offXX == null || offZZ == null) {
 
+            return latLngToMinecraft(lat, lng);
 
+        }
 
-    double metersPerChunk = metersPerChunk();
+        double mx = Math.toRadians(lng) * EARTH_RADIUS;
 
-    double metersZ = (chunkX * metersPerChunk + offXX);
+        double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
 
-    double metersX = ((chunkZ * metersPerChunk + offZZ));
+        double metersZ = -mx;
 
+        double metersX = -my;
 
+        double metersPerChunk = metersPerChunk();
 
-    metersX = -metersX;
+        int chunkZ = (int) Math.floor((metersZ - offZZ) / metersPerChunk);
 
-    metersZ = -metersZ;
+        int chunkX = (int) Math.floor((metersX - offXX) / metersPerChunk);
 
-
-
-    double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
-
-    double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
-
-
-
-    return new double[]{lat, lng};
-
-}
-
-
-
-public int[] latLngToMinecraft(UUID playerId, double lat, double lng) {
-
-    if (playerId == null) {
-
-        return latLngToMinecraft(lat, lng);
+        return new int[]{chunkX, chunkZ};
 
     }
 
+    public double[] minecraftToLatLng(int chunkX, int chunkZ) {
+        double metersPerChunk = metersPerChunk();
 
+        // Convert chunk coords to meters
+        double metersZ = (chunkX * metersPerChunk + newOffsetXX);
+        double metersX = ((chunkZ * metersPerChunk + newOffsetZZ)); // Removed the negative
 
-    Double offXX = anchorXXm.get(playerId);
+        // Invert metersX and metersZ to reverse the signs
+        metersX = -metersX;
+        metersZ = -metersZ;
 
-    Double offZZ = anchorZZm.get(playerId);
+        // Now convert metersX, metersZ (Web Mercator) back to lat/lng
+        double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
+        double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
 
-    if (offXX == null || offZZ == null) {
-
-        return latLngToMinecraft(lat, lng);
-
+        return new double[]{lat, lng};
     }
 
+    public int[] latLngToMinecraft(double lat, double lng) {
+        double[] meters = latLngToMeters(lat, lng);
+        double metersPerChunk = metersPerChunk();
 
+        double metersZ = meters[0];
+        double metersX = meters[1];
 
-    double mx = Math.toRadians(lng) * EARTH_RADIUS;
+        // Invert metersX and metersZ to reverse the signs
+        metersX = -metersX;
+        metersZ = -metersZ;
 
-    double my = Math.log(Math.tan(Math.PI / 4.0 + Math.toRadians(lat) / 2.0)) * EARTH_RADIUS;
+        int chunkX = (int)((metersX - newOffsetXX) / metersPerChunk);
+        int chunkZ = (int)((metersZ - newOffsetZZ) / metersPerChunk); // Removed the negation from here as well
 
+        return new int[]{chunkX, chunkZ};
+    }
 
-
-    double metersZ = -mx;
-
-    double metersX = -my;
-
-
-
-    double metersPerChunk = metersPerChunk();
-
-    int chunkZ = (int) Math.floor((metersZ - offZZ) / metersPerChunk);
-
-    int chunkX = (int) Math.floor((metersX - offXX) / metersPerChunk);
-
-
-
-    return new int[]{chunkX, chunkZ};
-
-}
-
-
-
-public double[] minecraftToLatLng(int chunkX, int chunkZ) {
-    double metersPerChunk = metersPerChunk();
-
-    // Convert chunk coords to meters
-    double metersZ = (chunkX * metersPerChunk + newOffsetXX);
-    double metersX = ((chunkZ * metersPerChunk + newOffsetZZ)); // Removed the negative
-
-    // Invert metersX and metersZ to reverse the signs
-    metersX = -metersX;
-    metersZ = -metersZ;
-
-    // Now convert metersX, metersZ (Web Mercator) back to lat/lng
-    double lng = (metersX / EARTH_RADIUS) * (180 / Math.PI);
-    double lat = (2 * Math.atan(Math.exp(metersZ / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI);
-
-    return new double[]{lat, lng};
-}
-
-public int[] latLngToMinecraft(double lat, double lng) {
-    double[] meters = latLngToMeters(lat, lng);
-    double metersPerChunk = metersPerChunk();
-
-    double metersZ = meters[0];
-    double metersX = meters[1];
-
-    // Invert metersX and metersZ to reverse the signs
-    metersX = -metersX;
-    metersZ = -metersZ;
-
-    int chunkX = (int)((metersX - newOffsetXX) / metersPerChunk);
-    int chunkZ = (int)((metersZ - newOffsetZZ) / metersPerChunk); // Removed the negation from here as well
-
-    return new int[]{chunkX, chunkZ};
-}
-
-private double[] latLngToMeters(double lat, double lng) {
-    double x = lng * (Math.PI / 180) * EARTH_RADIUS;
-    double z = Math.log(Math.tan((Math.PI / 4) + Math.toRadians(lat) / 2)) * EARTH_RADIUS;
-    return new double[]{x, z};
-}
+    private double[] latLngToMeters(double lat, double lng) {
+        double x = lng * (Math.PI / 180) * EARTH_RADIUS;
+        double z = Math.log(Math.tan((Math.PI / 4) + Math.toRadians(lat) / 2)) * EARTH_RADIUS;
+        return new double[]{x, z};
+    }
 
 
     private double sinLat0, cosLat0, sinLon0, cosLon0;
 
-    private static final double a = 6378137.0; 
-    private static final double f = 1 / 298.257223563; 
-    private static final double b = a * (1 - f); 
-    private static final double eSq = (a * a - b * b) / (a * a); 
-    private static final double eSqPrime = (a * a - b * b) / (b * b); 
+    private static final double a = 6378137.0;
+    private static final double f = 1 / 298.257223563;
+    private static final double b = a * (1 - f);
+    private static final double eSq = (a * a - b * b) / (a * a);
+    private static final double eSqPrime = (a * a - b * b) / (b * b);
 
     private double[] enuToEcef(double east, double north, double up) {
         double sinLat0 = Math.sin(Math.toRadians(LAT_ORIGIN));
