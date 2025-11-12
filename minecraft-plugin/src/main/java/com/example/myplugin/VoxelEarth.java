@@ -637,7 +637,7 @@ public class VoxelEarth extends JavaPlugin {
                     }
                     getMovementListener().setReferenceLatLng(p.getUniqueId(), latLng[0], latLng[1]);
 
-                    int[] islandBase = gen.computeIslandBaseFor(latLng[0], latLng[1]);
+                    int[] islandBase = gen.allocateNewIslandBase();
                     gen.setPlayerAnchor(p.getUniqueId(), latLng[0], latLng[1], islandBase[0], islandBase[1]);
 
                     // Convert lat/lng using the per-player anchor
@@ -704,7 +704,7 @@ public class VoxelEarth extends JavaPlugin {
                         gen.notifyProgress(target.getUniqueId(), 10, "Geocoded " + location);
                     }
 
-                    int[] islandBase = gen.computeIslandBaseFor(latLng[0], latLng[1]);
+                    int[] islandBase = gen.allocateNewIslandBase();
                     gen.setPlayerAnchor(target.getUniqueId(), latLng[0], latLng[1], islandBase[0], islandBase[1]);
 
                     // Convert lat/lng

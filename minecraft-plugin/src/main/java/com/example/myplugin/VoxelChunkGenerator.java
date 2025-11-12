@@ -58,8 +58,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     private final Map<UUID, Double> anchorZZm = new ConcurrentHashMap<>();
 
     // Island tiling near origin so each visit lands on its own base chunk
-    private static final int ISLAND_STRIDE_CHUNKS = 4096; // ~31 km between islands at 0.476 m/block
+    private static final int ISLAND_STRIDE_CHUNKS = 2048; // ~15.6 km between islands at 0.476 m/block
     private static final int ISLAND_GRID_SPAN = 128;      // keeps base chunks within +/-262k
+    private final AtomicInteger islandSeq = new AtomicInteger(); // monotonic allocator (no reuse)
 
     // Progress tracking (per player)
     private final Map<UUID, Integer> lastPct = new ConcurrentHashMap<>();
@@ -1321,6 +1322,16 @@ public int[] computeIslandBaseFor(double lat, double lng) {
 
     int baseChunkX = gNorth * ISLAND_STRIDE_CHUNKS; // X ⇐ latitude (north/south)
     int baseChunkZ = gEast  * ISLAND_STRIDE_CHUNKS; // Z ⇐ longitude (east/west)
+    return new int[]{ baseChunkX, baseChunkZ };
+}
+
+public int[] allocateNewIslandBase() {
+    int n = islandSeq.getAndIncrement();
+    int cols = ISLAND_GRID_SPAN;
+    int gx = (n % cols) - (cols / 2);
+    int gz = (n / cols) - (cols / 2);
+    int baseChunkX = gx * ISLAND_STRIDE_CHUNKS;
+    int baseChunkZ = gz * ISLAND_STRIDE_CHUNKS;
     return new int[]{ baseChunkX, baseChunkZ };
 }
 
