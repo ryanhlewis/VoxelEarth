@@ -776,44 +776,21 @@ public class VoxelEarth extends JavaPlugin {
     }
 
     private void teleportAndLoadChunk(Player player, World world, int x, int z, int playerX, int playerZ) {
-        int chunkX = x;
-        int chunkZ = z;
+        final int chunkX = x;
+        final int chunkZ = z;
         VoxelChunkGenerator generator = getVoxelChunkGenerator();
 
-        if (!world.isChunkLoaded(chunkX, chunkZ)) {
-            System.out.println("Loading chunk: " + chunkX + ", " + chunkZ);
-            generator.loadChunk(player.getUniqueId(), chunkX, chunkZ, true, (blockLocation) -> {
-                Bukkit.getScheduler().runTask(this, () -> {
-                    Location safe = safeFromBlockAnchor(world, blockLocation, SPAWN_ABOVE_GROUND);
-                    if (safe == null) {
-                        safe = findNearestSafeSpawn(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
-                    }
-                    if (safe == null) {
-                        safe = world.getSpawnLocation();
-                    }
-                    if (safe == null) {
-                        safe = player.getLocation();
-                    }
-
-                    player.teleport(safe);
-                    player.setFallDistance(0f);
-
-                    setPlayerSpawnSmart(player, safe);
-                    setWorldSpawnSmart(world, safe);
-
-                    getMovementListener().markVisitArrived(player.getUniqueId());
-                    player.sendMessage("You are now at: "
-                            + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
-                    player.sendMessage("Welcome to your destination!");
-                    getLogger().info("Teleported (loaded) to safe: "
-                            + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
-                    generator.notifyProgress(player.getUniqueId(), 100, "Arrived");
-                });
-            });
-        } else {
-            System.out.println("Chunk already loaded: " + chunkX + ", " + chunkZ);
+        generator.loadChunk(player.getUniqueId(), chunkX, chunkZ, true, (blockLocation) -> {
             Bukkit.getScheduler().runTask(this, () -> {
-                Location safe = findSafeSpawnAtXZ(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
+                if (!player.isOnline()) {
+                    getMovementListener().cancelVisit(player.getUniqueId());
+                    return;
+                }
+
+                Location safe = safeFromBlockAnchor(world, blockLocation, SPAWN_ABOVE_GROUND);
+                if (safe == null) {
+                    safe = findSafeSpawnAtXZ(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
+                }
                 if (safe == null) {
                     safe = findNearestSafeSpawn(world, playerX, playerZ, SPAWN_ABOVE_GROUND);
                 }
@@ -834,11 +811,11 @@ public class VoxelEarth extends JavaPlugin {
                 player.sendMessage("You are now at: "
                         + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
                 player.sendMessage("Welcome to your destination!");
-                getLogger().info("Teleported (preloaded) to safe: "
+                getLogger().info("Teleported to safe: "
                         + safe.getBlockX() + ", " + safe.getBlockY() + ", " + safe.getBlockZ());
                 generator.notifyProgress(player.getUniqueId(), 100, "Arrived");
             });
-        }
+        });
     }
 
     private void reattachGeneratorToWorld(String worldName) {

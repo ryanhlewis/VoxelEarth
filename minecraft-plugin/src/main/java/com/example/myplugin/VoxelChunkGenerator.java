@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.awt.Color;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.security.SecureRandom;
 // player
 import java.util.*;
 import java.util.concurrent.*;
@@ -60,7 +61,9 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     // Island tiling near origin so each visit lands on its own base chunk
     private static final int ISLAND_STRIDE_CHUNKS = 2048; // ~15.6 km between islands at 0.476 m/block
     private static final int ISLAND_GRID_SPAN = 128;      // keeps base chunks within +/-262k
-    private final AtomicInteger islandSeq = new AtomicInteger(); // monotonic allocator (no reuse)
+    private final Deque<int[]> islandBag = new ArrayDeque<>();
+    private final Object islandBagLock = new Object();
+    private final SecureRandom islandRandom = new SecureRandom();
 
     // Progress tracking (per player)
     private final Map<UUID, Integer> lastPct = new ConcurrentHashMap<>();
@@ -1325,14 +1328,31 @@ public int[] computeIslandBaseFor(double lat, double lng) {
     return new int[]{ baseChunkX, baseChunkZ };
 }
 
+private void refillIslandBagLocked() {
+    List<int[]> fresh = new ArrayList<>(ISLAND_GRID_SPAN * ISLAND_GRID_SPAN);
+    int half = ISLAND_GRID_SPAN / 2;
+    for (int gx = -half; gx < half; gx++) {
+        for (int gz = -half; gz < half; gz++) {
+            fresh.add(new int[]{ gx * ISLAND_STRIDE_CHUNKS, gz * ISLAND_STRIDE_CHUNKS });
+        }
+    }
+    Collections.shuffle(fresh, islandRandom);
+    islandBag.clear();
+    islandBag.addAll(fresh);
+}
+
 public int[] allocateNewIslandBase() {
-    int n = islandSeq.getAndIncrement();
-    int cols = ISLAND_GRID_SPAN;
-    int gx = (n % cols) - (cols / 2);
-    int gz = (n / cols) - (cols / 2);
-    int baseChunkX = gx * ISLAND_STRIDE_CHUNKS;
-    int baseChunkZ = gz * ISLAND_STRIDE_CHUNKS;
-    return new int[]{ baseChunkX, baseChunkZ };
+    synchronized (islandBagLock) {
+        if (islandBag.isEmpty()) {
+            refillIslandBagLocked();
+        }
+        int[] coords = islandBag.pollFirst();
+        if (coords == null) {
+            // This should never happen, but fall back to origin to avoid NPEs.
+            return new int[]{0, 0};
+        }
+        return new int[]{ coords[0], coords[1] };
+    }
 }
 
 
