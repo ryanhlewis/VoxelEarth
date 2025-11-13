@@ -24,6 +24,11 @@ commands:
     usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
     permission: voxelearth.loadjson
     permission-message: You don't have permission to load JSON files.
+  voxelapikey:
+    description: Store a custom Google API key for geocoding and tiles.
+    usage: /voxelapikey <google-api-key>
+    permission: voxelearth.apikey
+    permission-message: You don't have permission to set the API key.
   visit:
     description: Teleport to a city or location using geocoding.
     usage: /visit <location>
@@ -84,6 +89,9 @@ permissions:
   voxelearth.loadjson:
     description: Allows loading and applying JSON files.
     default: op
+  voxelearth.apikey:
+    description: Allows setting the custom Google API key for geocoding and tile downloads.
+    default: true
   voxelearth.visit:
     description: Allows teleporting to a location using geocoding.
     default: true

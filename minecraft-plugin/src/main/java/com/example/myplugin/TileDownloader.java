@@ -107,6 +107,12 @@ public class TileDownloader {
         this.radius = radius;
     }
 
+    public void setApiKey(String apiKey) {
+        if (apiKey == null || apiKey.isBlank()) return;
+        this.apiKey = apiKey;
+        Log.info("[TileDownloader] Updated API key for downloader instance.");
+    }
+
     public void setOrigin(double[] origin) {
         this.origin = origin;
     }
@@ -172,7 +178,9 @@ public class TileDownloader {
 
         // 2b) Process the first tile immediately (with the chosen origin)
         Map.Entry<String, byte[]> pivot = entries.remove(0);
-        rotatedTiles.add(rotateTileInMemory(pivot.getKey(), pivot.getValue()));
+        TilePayload pivotPayload = rotateTileInMemory(pivot.getKey(), pivot.getValue());
+        rotatedTiles.add(pivotPayload);
+        markTileProcessed(pivotPayload.tileId());
 
         // Process the rest in parallel, using the SAME origin
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -182,6 +190,7 @@ public class TileDownloader {
             futures.add(pool.submit(() -> {
                 TilePayload payload = rotateTileInMemory(entry.getKey(), entry.getValue());
                 rotatedTiles.add(payload);
+                markTileProcessed(payload.tileId());
             }));
         }
 

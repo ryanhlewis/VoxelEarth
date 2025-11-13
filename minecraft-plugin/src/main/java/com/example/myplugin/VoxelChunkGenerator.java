@@ -39,7 +39,7 @@ public class VoxelChunkGenerator extends ChunkGenerator {
 
     private static final double LAT_ORIGIN = 50.081033020810736;
     private static final double LNG_ORIGIN = 14.451093643141064;
-    private static final String API_KEY = "AIzaSy..."; // Your API key here
+    private final ApiKeyManager apiKeyManager;
     private TileDownloader tileDownloader;
 
     // Tile index + voxel cache
@@ -209,13 +209,32 @@ public class VoxelChunkGenerator extends ChunkGenerator {
     }
 
     public VoxelChunkGenerator() {
+        this(resolveApiKeyManager());
+    }
+
+    public VoxelChunkGenerator(ApiKeyManager apiKeyManager) {
+        this.apiKeyManager = Objects.requireNonNull(apiKeyManager, "apiKeyManager");
         debug("VoxelChunkGenerator initialized");
         debug("LAT_ORIGIN: " + LAT_ORIGIN + ", LNG_ORIGIN: " + LNG_ORIGIN);
         debug("Default scaleFactor (metersPerBlock): " + scaleFactor);
         debug("Using a tile radius of 25 for single tile loading.");
 
-        tileDownloader = new TileDownloader(API_KEY, LNG_ORIGIN, LAT_ORIGIN, 25);
+        tileDownloader = new TileDownloader(apiKeyManager.getCurrentApiKey(), LNG_ORIGIN, LAT_ORIGIN, 25);
         loadMaterialColors();
+    }
+
+    private static ApiKeyManager resolveApiKeyManager() {
+        VoxelEarth plugin = VoxelEarth.getInstance();
+        if (plugin == null) {
+            throw new IllegalStateException("VoxelEarth plugin instance is not yet available.");
+        }
+        return plugin.getApiKeyManager();
+    }
+
+    public void refreshTileDownloaderApiKey() {
+        if (tileDownloader != null) {
+            tileDownloader.setApiKey(apiKeyManager.getCurrentApiKey());
+        }
     }
 
     /** Update the per-player scoreboard HUD. pct=-1 marks an error. */
@@ -777,9 +796,10 @@ public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Co
             debug("Downloaded tile payloads: " + downloadedTiles.size());
 
             if (downloadedTiles.isEmpty()) {
-                debug("No tiles downloaded.");
-                notifyProgress(playerUUID, -1, "No tiles available for this area.");
-                callback.accept(blockLocation);
+                debug("No new tiles downloaded (all tiles already processed or no coverage).");
+                notifyProgress(playerUUID, 0, "Idle");
+                int[] last = lastVisitSpawn.get(playerUUID);
+                callback.accept(last != null ? last.clone() : blockLocation);
                 return;
             }
 
@@ -878,8 +898,6 @@ public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Co
                     indexMap1.markPlaced();
                     placedTileKeys.add(placementKey);
 
-                    // Tile is now physically in the world -> mark globally processed
-                    TileDownloader.markTileProcessed(initialTileKey);
                 } else {
                     debug("Initial tile already placed for base chunk; skipping placement.");
                 }
@@ -912,8 +930,6 @@ public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Co
                     indexMap.markPlaced();
                     placedTileKeys.add(placementKey);
 
-                    // Mark this tile as globally processed too
-                    TileDownloader.markTileProcessed(tileKey);
                 }
             });
 
@@ -1049,9 +1065,10 @@ public void loadChunk(UUID playerUUID, int tileX, int tileZ, boolean isVisit, Co
     private boolean isWithinLoadedArea(UUID playerId, double lat, double lng, double radiusMeters) {
         List<LoadedArea> areas = loadedAreas.get(playerId);
         if (areas == null || areas.isEmpty()) return false;
+        double reuseThreshold = Math.max(25.0, radiusMeters * 0.5);
         for (LoadedArea area : areas) {
             double dist = distanceMeters(lat, lng, area.lat, area.lng);
-            if (dist + radiusMeters <= area.radiusMeters + 0.5) {
+            if (dist <= reuseThreshold) {
                 return true;
             }
         }

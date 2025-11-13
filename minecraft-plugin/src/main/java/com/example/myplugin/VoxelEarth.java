@@ -1,6 +1,7 @@
 package com.example.voxelearth;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -25,14 +26,18 @@ import java.net.URL;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.logging.Level;
 
 public class VoxelEarth extends JavaPlugin {
 
     private static VoxelEarth instance;
 
+    private static final String DEFAULT_API_KEY = "AIzaSy..."; // Built-in fallback key
+
     // Hold a single instance of VoxelChunkGenerator
     private VoxelChunkGenerator voxelChunkGenerator;
     private PlayerMovementListener movementListener;
+    private ApiKeyManager apiKeyManager;
 
     /** Number of blocks to stand above the detected ground surface. */
     private static final int SPAWN_ABOVE_GROUND = 2;
@@ -72,11 +77,17 @@ public class VoxelEarth extends JavaPlugin {
     @Override
     public void onLoad() {
         instance = this;
+        apiKeyManager = new ApiKeyManager(this, DEFAULT_API_KEY);
     }
 
     @Override
     public void onEnable() {
         instance = this;
+        if (apiKeyManager == null) {
+            apiKeyManager = new ApiKeyManager(this, DEFAULT_API_KEY);
+        } else {
+            apiKeyManager.reloadFromDisk();
+        }
         getLogger().info("VoxelEarth has been enabled");
         if (!Debug.isDebug()) {
             getLogger().setLevel(java.util.logging.Level.WARNING);
@@ -105,7 +116,7 @@ public class VoxelEarth extends JavaPlugin {
     public ChunkGenerator getDefaultWorldGenerator(String worldName, String id) {
         if (voxelChunkGenerator == null) {
             getLogger().info("VoxelEarth making new Chunk Generator");
-            voxelChunkGenerator = new VoxelChunkGenerator();
+            voxelChunkGenerator = new VoxelChunkGenerator(getApiKeyManager());
         }
         getLogger().info("VoxelEarth is returning Default World Generator");
         return voxelChunkGenerator;
@@ -114,9 +125,16 @@ public class VoxelEarth extends JavaPlugin {
     public VoxelChunkGenerator getVoxelChunkGenerator() {
         if (voxelChunkGenerator == null) {
             getLogger().info("VoxelEarth making new Chunk Generator");
-            voxelChunkGenerator = new VoxelChunkGenerator();
+            voxelChunkGenerator = new VoxelChunkGenerator(getApiKeyManager());
         }
         return voxelChunkGenerator;
+    }
+
+    public ApiKeyManager getApiKeyManager() {
+        if (apiKeyManager == null) {
+            apiKeyManager = new ApiKeyManager(this, DEFAULT_API_KEY);
+        }
+        return apiKeyManager;
     }
 
     public PlayerMovementListener getMovementListener() {
@@ -335,7 +353,7 @@ public class VoxelEarth extends JavaPlugin {
             if (args.length == 1) {
                 String worldName = args[0];
                 WorldCreator worldCreator = new WorldCreator(worldName);
-                worldCreator.generator(new VoxelChunkGenerator());
+                worldCreator.generator(new VoxelChunkGenerator(getApiKeyManager()));
                 World world = Bukkit.createWorld(worldCreator);
                 realSender.sendMessage("Custom world '" + worldName + "' created!");
                 return true;
@@ -360,7 +378,7 @@ public class VoxelEarth extends JavaPlugin {
 
                 if (voxelChunkGenerator == null) {
                     getLogger().info("VoxelEarth making new Chunk Generator");
-                    voxelChunkGenerator = new VoxelChunkGenerator();
+                    voxelChunkGenerator = new VoxelChunkGenerator(getApiKeyManager());
                 }
 
                 voxelChunkGenerator.regenChunks(world, scaleX, scaleY, scaleZ, newOffsetX, newOffsetY, newOffsetZ);
@@ -388,7 +406,7 @@ public class VoxelEarth extends JavaPlugin {
 
                 if (voxelChunkGenerator == null) {
                     getLogger().info("Creating new VoxelChunkGenerator");
-                    voxelChunkGenerator = new VoxelChunkGenerator();
+                    voxelChunkGenerator = new VoxelChunkGenerator(getApiKeyManager());
                 }
 
                 try {
@@ -404,6 +422,30 @@ public class VoxelEarth extends JavaPlugin {
                 realSender.sendMessage("Usage: /loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>");
                 return false;
             }
+        } else if (command.getName().equalsIgnoreCase("voxelapikey")) {
+            if (args.length != 1) {
+                realSender.sendMessage("Usage: /voxelapikey <google-api-key>");
+                return false;
+            }
+            String newKey = args[0].trim();
+            if (newKey.isEmpty()) {
+                realSender.sendMessage(ChatColor.RED + "API key cannot be empty.");
+                return true;
+            }
+            try {
+                getApiKeyManager().setCustomApiKey(newKey);
+                if (voxelChunkGenerator != null) {
+                    voxelChunkGenerator.refreshTileDownloaderApiKey();
+                }
+                realSender.sendMessage(ChatColor.GREEN + "Stored custom Google API key (" + newKey.length() + " chars).");
+                realSender.sendMessage(ChatColor.YELLOW + "Ensure Geocoding + Maps Tiles APIs are enabled for this key.");
+            } catch (IllegalArgumentException e) {
+                realSender.sendMessage(ChatColor.RED + e.getMessage());
+            } catch (IOException e) {
+                realSender.sendMessage(ChatColor.RED + "Failed to store API key. Check console for details.");
+                getLogger().log(Level.WARNING, "Failed to persist custom API key", e);
+            }
+            return true;
         } else if (command.getName().equalsIgnoreCase("visitradius")) {
             if (args.length != 1) {
                 realSender.sendMessage("Usage: /visitradius <tiles>");
@@ -641,6 +683,7 @@ public class VoxelEarth extends JavaPlugin {
                     double[] latLng = geocodeLocation(location);
                     if (latLng == null) {
                         realSender.sendMessage("Failed to find location: " + location);
+                        warnApiKeyExpired(realSender);
                         gen.notifyProgress(p.getUniqueId(), -1, "Geocoding failed");
                         getMovementListener().cancelVisit(p.getUniqueId());
                         return;
@@ -708,6 +751,8 @@ public class VoxelEarth extends JavaPlugin {
                     double[] latLng = geocodeLocation(location);
                     if (latLng == null) {
                         sender.sendMessage("Failed to find location: " + location);
+                        warnApiKeyExpired(sender);
+                        warnApiKeyExpired(target);
                         gen.notifyProgress(target.getUniqueId(), -1, "Geocoding failed");
                         getMovementListener().cancelVisit(target.getUniqueId());
                         return;
@@ -754,11 +799,11 @@ public class VoxelEarth extends JavaPlugin {
 
     private double[] geocodeLocation(String location) throws IOException {
         String apiUrl = "https://maps.googleapis.com/maps/api/geocode/json";
-        String apiKey = "AIzaSy..."; // Replace with your API key
+        String apiKey = getApiKeyManager().getCurrentApiKey();
 
         String requestUrl = apiUrl + "?address=" + location.replace(" ", "+") + "&key=" + apiKey;
-    URL url = URI.create(requestUrl).toURL();
-    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        URL url = URI.create(requestUrl).toURL();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
@@ -786,6 +831,12 @@ public class VoxelEarth extends JavaPlugin {
         double lng = locationObject.getDouble("lng");
 
         return new double[]{lat, lng};
+    }
+
+    private void warnApiKeyExpired(CommandSender recipient) {
+        if (recipient == null) return;
+        recipient.sendMessage(ChatColor.RED + "Google API key is expired or missing.");
+        recipient.sendMessage(ChatColor.YELLOW + "Enable Geocoding + Maps Tiles APIs and run /voxelapikey <your-key>.");
     }
 
     private void teleportAndLoadChunk(Player player, World world, int x, int z, int playerX, int playerZ) {
