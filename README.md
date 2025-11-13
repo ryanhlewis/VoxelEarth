@@ -45,8 +45,6 @@ Voxel Earth is a Minecraft + web ecosystem for exploring real-world geometry as 
 
 ## Downloads
 
-> **Note:** Links below are placeholders / targets; some may not exist yet.
-
 - **Minecraft plugin (core Voxel Earth JAR)**  
   - GitHub Releases: https://github.com/ryanhlewis/VoxelEarth/releases
   - Modrinth: https://modrinth.com/plugin/voxelearth
