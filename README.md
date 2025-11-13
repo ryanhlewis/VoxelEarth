@@ -1,164 +1,447 @@
-# Voxel Earth
-Voxel Earth is a pipeline aimed at converting photogrammetry data into block-based landscapes, creating a detailed voxel representation of the Earth. This project leverages 3D Tiles from various sources and transforms them into interactive, voxelized worlds, primarily for use in Minecraft.
+# VoxelEarth
 
-### Project Overview
-Voxel Earth acts as both a proxy and pipeline to convert 3D Tiles into voxel representations. It is designed to handle large datasets efficiently, converting any 3D Tile into a voxelized format and serving it back for visualization. This process extends to any 3D Tiles, including open-source photogrammetry tilesets.
+> Real places, in Minecraft.
 
-### Features
-- **High-Resolution Conversion**: Converts Google’s 3D Tiles into Minecraft blocks, creating detailed block representations of real-world locations.
-- **Multi-Resolution Viewing**: Users can adjust the voxel count to view landmarks at different levels of detail.
-- **Interactive Visualization**: Compatible with Minecraft and web, allowing users to explore and interact with voxelized environments.
+ [![Join us on Discord](https://img.shields.io/discord/308323056592486420?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2")](https://discord.gg/8MK8J9EQGe)
 
-### Usage
+VoxelEarth is a full pipeline for turning photogrammetry and 3D Tiles into block-based worlds.  
+It streams Google Photorealistic 3D Tiles (and other sources) into Minecraft as voxelized chunks, so you can walk through real cities, mountains, and landmarks — block by block.
 
-#### Map Viewer
+- 🌍 Stream real-world 3D Tiles into Minecraft
+- 🧱 CPU voxelization, no GPU required on the server
+- ⚡ Designed to work hand-in-hand with FastAsyncWorldEdit (FAWE)
+- 🌐 Web client for browser-side experiments and previews
+- 🧪 Separate CLIs for each pipeline stage (download → decode → voxelize)
 
-Moved to [Web Client](https://github.com/voxelearth/web-client) repository.
-This will voxelize and render 3D Tiles all in your browser.
+---
 
-#### Minecraft
-We also show how our custom Minecraft plugin can load in Google Earth into Minecraft on the fly. The plugin should work on Windows, Linux, and Mac, and supports no GPU. Note that you should NOT run this plugin on an existing Minecraft world! It spawns in gigantic mega-structures. Use a fresh world / server!
-To make it easier, we have made bash scripts that auto-setup new servers.
+## Links & Community
 
-The fastest setup for Linux is:
-```
-git clone https://github.com/voxelearth/dynamicloader
-cd dynamicloader
-./setupsingle.sh
-```
-For Windows, download and use the same zipfile with a bash script.
-```
-git clone https://github.com/voxelearth/dynamicloader
-cd dynamicloader
-./setupsingle.bat
-```
+- **Website:** https://voxelearth.org  
+- **Play server:** `play.voxelearth.org`  
+- **Web client demo:** https://beta.voxelearth.org (browser viewer)  
+- **Discord:** https://discord.gg/8MK8J9EQGe  
+- **Monorepo (reference):** https://github.com/ryanhlewis/VoxelEarth  
 
-For those who prefer to do it barebones:
+---
+
+## What is VoxelEarth and why should I use it?
+
+VoxelEarth is a Minecraft + web ecosystem for exploring real-world geometry as voxels:
+
+- **3D Tiles to blocks**  
+  Fetches photogrammetry tiles (e.g. Google Photorealistic 3D Tiles), normalizes them, and converts them into Minecraft block palettes.
+
+- **On-demand streaming**  
+  Tiles are pulled and voxelized as players move around, so you can “walk into” a real city and watch it appear around you.
+
+- **Flexible pipeline**  
+  Each major step (download, Draco decode, voxelization) exists as a separate CLI tool and as embedded code in the plugin. You can test each stage locally before wiring everything together.
+
+- **Server-friendly**  
+  The Minecraft plugin is built as a single shaded JAR, with CPU voxelization and async integration with FAWE for high-throughput placement.
+
+---
+
+## Downloads
+
+> **Note:** Links below are placeholders / targets; some may not exist yet.
+
+- **Minecraft plugin (core VoxelEarth JAR)**  
+  - GitHub Releases: https://github.com/ryanhlewis/VoxelEarth/releases (coming soon)  
+  - Modrinth: https://modrinth.com/plugin/voxelearth (coming soon)  
+  - SpigotMC: https://www.spigotmc.org/resources/voxelearth.00000/ (coming soon)  
+
+- **Web client**  
+  - GitHub: https://github.com/voxelearth/web-client  
+
+- **Pipeline CLIs**  
+  - 3D Tiles downloader: https://github.com/voxelearth/java-3dtiles-downloader  
+  - Draco decoder: https://github.com/voxelearth/java-draco-decoder  
+  - CPU voxelizer: https://github.com/voxelearth/java-cpu-voxelizer  
+
+---
+
+## Minecraft Plugin
+
+### Requirements
+
+- **Server:** Paper or Spigot **1.20.4+** (primary target is Paper 1.20.4)  
+- **Java:** **Java 21+** (plugin compiled with `--release 21`)  
+- **Plugins:**
+  - Optional but highly recommended: **FastAsyncWorldEdit (FAWE)** matching your server version  
+  - WorldEdit is detected when present, but not strictly required
+
+### Version & FAWE Compatibility
+
+VoxelEarth has two placement paths:
+
+1. **BlockPlacer (no FAWE)** — a direct placement path that can work on **1.7–1.20.4** in code, using a single `BlockPlacer.java` binding.
+2. **FAWE-powered placement** — uses FAWE’s async/world editing API for higher throughput on modern servers.
+
+Current status of the public plugin builds:
+
+- **Minecraft 1.20.4 (Paper/Spigot)**  
+  - ✅ Actively tested and supported  
+  - ✅ FAWE **optional** – if FAWE is not installed, VoxelEarth falls back to its internal BlockPlacer path  
+  - ✅ Works as a single plugin JAR, no GPU required
+
+- **Minecraft 1.20.x+ (e.g. 1.20.5+, 1.21, …)**  
+  - ⚠ Expected to work, but **you should install a matching FAWE build** for your server version  
+  - The core logic is version-agnostic, but we assume a FAWE jar is present to handle large edits efficiently
+
+- **Minecraft 1.7–1.19.x**  
+  - 🧪 The BlockPlacer path is designed to be compatible with 1.7–1.20.4, but **we are not currently shipping prebuilt jars below 1.20**  
+  - Supporting older versions will require building a version-specific plugin from source / dedicated branches
+
+If you’re running **1.20.4**, you can run VoxelEarth with or without FAWE installed.  
+If you’re running **1.20+ but not 1.20.4**, plan to drop FAWE into your `plugins/` folder.
+
+---
+
+## Quick Start – Barebones Server Setup (1.20.4)
+
+### Linux (Paper + FAWE + VoxelEarth)
 
 ```bash
+# Create server folder
 mkdir -p ~/paper-server
 cd ~/paper-server
+
+# Download Paper 1.20.4
 wget https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar -O paper.jar
+
+# Plugins folder
 mkdir -p plugins
-wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/IntellectualSites/FastAsyncWorldEdit/releases/download/2.12.3/FastAsyncWorldEdit-Bukkit-2.12.3.jar
+
+# (Recommended) Install FAWE for 1.20.4
+wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar \
+  https://github.com/IntellectualSites/FastAsyncWorldEdit/releases/download/2.12.3/FastAsyncWorldEdit-Bukkit-2.12.3.jar
+
+# Accept the EULA
 echo "eula=true" > eula.txt
+
+# Clone VoxelEarth repo (monorepo reference)
 git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
+
+# Copy the Minecraft plugin server files (configs, default worlds, etc.)
 cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
-cd ..
-```
-Now, the server can run easily using:
-```
-java -Xms512M -Xmx1024M -jar paper.jar nogui
+````
+
+Drop your **VoxelEarth.jar** (built from this repo) into `plugins/`, then start the server:
+
+```bash
+java -Xms2G -Xmx4G -jar paper.jar nogui
 ```
 
-*NOTE: This plugin is still in development and may not work as expected.
-Do NOT use without making a backup of your server. Make an empty server to try it out!*
+### Windows (PowerShell / CMD + Git Bash)
 
-Inside your server with the Voxel Earth plugin, there are five commands so far:
+Use the same steps, or use the provided scripts in the `dynamicloader` / server tooling repos if you prefer a one-click setup. The plugin is cross-platform; just ensure Java 21 and Paper 1.20.4+.
+
+---
+
+## Commands
+
+VoxelEarth’s plugin adds commands for geocoding, tile loading, and per-player preferences:
+
 ```yml
-  visit:
-    description: Teleport to a city or location using geocoding.
-    usage: /visit <location>
-  visitradius:
-    description: Set how many tiles /visit loads around the target
-    usage: /visitradius <tiles>
-  moveradius:
-    description: Set how many tiles movement-triggered loads will fetch
-    usage: /moveradius <tiles>
-  movethreshold:
-    description: Set the movement distance threshold (in blocks) for triggering loads
-    usage: /movethreshold <blocks>
-  moveload:
-    description: Toggle movement-based loading for yourself
-    usage: /moveload <on|off|toggle|status>
+/visit <location>
+  Teleport to a geocoded location (city, landmark, etc.) and stream tiles around it.
+
+/visitradius <tiles>
+  Configure how many tiles /visit loads around the target area.
+
+/moveradius <tiles>
+  Set how many tiles are loaded as the player moves.
+
+/movethreshold <blocks>
+  Movement distance (in blocks) required before triggering new loads.
+
+/moveload <on|off|toggle|status>
+  Enable/disable movement-based loading for yourself.
+
+/visitother <player> <location>
+  Teleport another player to a geocoded location and stream tiles.
+
+/visitradiusother <player> <tiles>
+/moveradiusother <player> <tiles>
+/movethresholdother <player> <blocks>
+  Admin variants that adjust settings and notify other players.
+
+/createcustomworld <worldname>
+  Creates a new world using the VoxelEarth chunk generator.
+
+/regenchunks <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
+  Regenerate chunks with custom scaling and offsets for voxel imports.
+
+/loadjson <filename> <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
+  Load a pre-voxelized JSON chunk set and apply transforms.
+
+/voxelapikey <google-api-key>
+  Store a Google API key for geocoding and tile access (per server).
 ```
 
-### Roadmap
+Permissions are namespaced under `voxelearth.*` and default to `true` or `op` as appropriate (see `plugin.yml` for full details).
 
-Our overall goal is to make an interactive Earth accessible in Minecraft. Currently, we are working on the following features:
+---
 
-[ ✔ ] **GPU Voxelization**: Optimize the voxelization process using CUDA shaders for on-demand voxelization (credit to Forceflow's implementation)
+## Web Client
 
-[ ✔ ] **Texture Fixes**: Our current GPU voxelization gets textures mostly accurate, but is somewhat spotty with white/black pixels and needs to be revised.
+If you just want to experiment with tiles and voxelization **in your browser**, use the web client:
 
-[ ✔ ] **Rotation Fixes**: Convert 3D Tiles from ECEF to ENU to properly orient the object before voxelizing and have "flat voxels" instead of diagonal (credit to Google Earth team for this advice).
+* **Repo:** [https://github.com/voxelearth/web-client](https://github.com/voxelearth/web-client)
+* **Live demo:** [https://beta.voxelearth.org](https://beta.voxelearth.org)
 
-[ ✔ ] **Minecraft Chunk Loading**: Map a player's location to the voxelized world, loading chunks as needed to create a seamless experience.
+The web client:
 
-[ ✔‌ ] **CPU Voxelization**: We have an implementation in our [web-client](https://github.com/voxelearth/web-client), port it to work with the plugin.
+* Fetches Google Photorealistic 3D Tiles in the browser
+* Normalizes/rotates them into a viewable frame
+* Can hand off data to the VoxelEarth voxelization pipeline
+* Is ideal for exploring regions, testing zoom/SSE parameters, and visually inspecting tilesets before you spin up a Minecraft server
 
-[ ‌ ] **VXCH Patch**: We have an implementation in our [VXCH-patch](https://github.com/voxelearth/vxch-patch), which overhauls position files and indexed json into a Voxel Chunk (VXCH) binary format which is at least 5x faster and more disk efficient. Unclear if this is needed anymore with the In-Memory (no storage IO) patch.
+---
 
-[ ✔‌‌ ] **Collapse NodeJS dependency**: We have external reliance on NodeJS (Draco decompression + rotation). Porting these to be inside the Java would be better to allow the plugin to just be a single jarfile- but NodeJS is super fast for massively parallel downloading + Draco decompression + GLB rotation! Would need to benchmark!
+## Architecture & Companion Repositories
 
-### Developing
-**CPU Voxelization:**\
-Supported and works across the board. Used as a fallback when `cuda_voxelizer` is not present or does not work in the server directory.
+VoxelEarth is intentionally split into small, testable pieces. Each stage of the pipeline can be developed and validated in isolation.
 
-To edit the CPU voxelizer, please test against our [CLI Jarfile](https://github.com/voxelearth/java-cpu-voxelizer) for much faster and easier development! After making your optimizations, feel free to drop your changes into the `JavaCpuVoxelizer.java` class in the plugin and open a pull request!
+### 1. 3D Tiles Download – `java-3dtiles-downloader`
 
-**GPU Voxelization:**\
-Deprecated in favor of a single Jarfile plugin with no external dependencies. Benchmarks revealed that the time spent voxelizing in GPU was hindered by the large storage IO overhead of writing everything to disk twice to transfer to and from the Java plugin. GPU Voxelization should be reintroduced as Java-memory only in the future.
+**Repo:** [https://github.com/voxelearth/java-3dtiles-downloader](https://github.com/voxelearth/java-3dtiles-downloader)
 
-#### Minecraft
-To help develop our Minecraft plugin,
+A fast, parallel Java CLI that:
+
+* Pulls Google Photorealistic 3D Tiles (GLB leaves) in a spherical region
+* Uses a Google Maps Platform API key
+* Can be tuned via radius, parallelism, and elevation options
+
+**Local testing:**
+
 ```bash
-# Create server
-mkdir -p ~/paper-server
-cd ~/paper-server
-wget https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar -O paper.jar
-mkdir -p plugins
-wget -O plugins/FastAsyncWorldEdit-Bukkit-2.12.3.jar https://github.com/IntellectualSites/FastAsyncWorldEdit/releases/download/2.12.3/FastAsyncWorldEdit-Bukkit-2.12.3.jar
-echo "eula=true" > eula.txt
-git clone https://github.com/ryanhlewis/VoxelEarth.git voxelearth
-cp -r voxelearth/minecraft-plugin/server-folder-items/* ./
-cd ..
+cd java-3dtiles-downloader
+mvn -q -DskipTests clean package
+
+java -jar target/tiles-downloader-cli-1.0.0-all.jar \
+  --key YOUR_GOOGLE_API_KEY \
+  --lat 37.7793 --lng -122.4193 --radius 250 \
+  -o out --parallel 16 -v
 ```
 
-Now, to develop the plugin, you can edit the files in `voxelearth/minecraft-plugin/`, and keep rebuilding and copying the jar to the server:
+Use this to validate tile queries and raw GLB downloads before they ever touch Minecraft.
+
+---
+
+### 2. Draco Decode – `java-draco-decoder`
+
+**Repo:** [https://github.com/voxelearth/java-draco-decoder](https://github.com/voxelearth/java-draco-decoder)
+
+Small CLI that decodes Draco-compressed GLB/GLTF into plain GLB 2.0 via LWJGL + Assimp.
+
+**Local testing:**
+
 ```bash
-cd ~/voxelearth/minecraft-plugin/
+cd java-draco-decoder
+mvn -q -DskipTests clean package
+
+java -jar target/draco-decoder-cli-1.0.0-all.jar \
+  -f in.glb -o out -j 8 -v
+```
+
+This is the reference implementation for the **Draco decompression stage**. The Minecraft plugin mirrors this logic internally, so if something decodes here, it should decode inside VoxelEarth as well.
+
+---
+
+### 3. CPU Voxelization – `java-cpu-voxelizer`
+
+**Repo:** [https://github.com/voxelearth/java-cpu-voxelizer](https://github.com/voxelearth/java-cpu-voxelizer)
+
+CLI voxelizer that:
+
+* Converts GLB meshes into JSON “block + xyzi” files
+* Emits the same formats used by the in-plugin voxelization
+* Supports 3D Tiles cube bounds and adjustable voxel grid sizes
+
+**Local testing:**
+
+```bash
+cd java-cpu-voxelizer
+mvn -q -DskipTests clean package
+
+java -jar target/voxelizer-cli-1.0.0-all.jar \
+  -f /path/to/tile.glb -s 128 -o out -3dtiles -v
+```
+
+Use this to:
+
+* Iterate on voxelization performance and quality
+* Compare CPU output vs any GPU pipeline you use
+* Debug geometry issues without rebuilding the Minecraft plugin
+
+Once you’re happy, you can port your changes into the plugin’s internal voxelizer classes and open a PR.
+
+---
+
+### 4. Minecraft Integration
+
+Inside the Minecraft plugin:
+
+* Player position is mapped to **latitude/longitude** and a tile region
+* Tiles are:
+
+  1. Downloaded (or retrieved from cache)
+  2. Draco-decoded if necessary
+  3. Voxelized via the CPU path
+* Blocks are placed into the world using:
+
+  * The built-in **BlockPlacer** path (1.20.4, and potentially 1.7–1.20.4)
+  * Or **FAWE** for async large-scale edits on modern servers
+
+Key class for world generation and streaming is typically:
+
+* `VoxelChunkGenerator.java` (or equivalent) – handles mapping geo → chunks and orchestrating voxel data into Minecraft.
+
+---
+
+## Roadmap
+
+High-level goals (✔ = done / implemented in some form):
+
+* ✔ **CPU voxelization**
+  Robust fallback path, used by default in the plugin and mirrored by the CLI voxelizer.
+
+* ✔ **Rotation & coordinate fixes**
+  Proper conversion from ECEF to a local ENU-like frame to keep voxels “flat” on terrain.
+
+* ✔ **Dynamic chunk loading**
+  Player movement drives which tiles/voxels are streamed in, giving a continuous exploration experience.
+
+* ✔ **Web-based voxelization experiments**
+  The web client ships with an in-browser voxelization path for quick visualization.
+
+* ☐ **Version-specific plugin builds**
+  Prebuilt artifacts targeting more server versions (e.g. 1.21+ variants, possible legacy builds).
+
+* ☐ **VXCH / custom chunk formats**
+  We have experimental work on VXCH chunk formats and binary packing for faster IO, to be integrated once it clearly outperforms the in-memory approach.
+
+* ☐ **Voxel Mars & Voxel Moon**
+  Support other common Cesium 3D Tiles, especially open-source or freely licensed ones.
+
+---
+
+## Developing the Minecraft Plugin
+
+### Build
+
+```bash
+cd minecraft-plugin
 mvn -Pdebug clean package
-cp target/myplugin-1.0-SNAPSHOT.jar ~/paper-server/plugins/
 ```
-and keep starting or restarting the server with another terminal:
+
+This typically produces a shaded JAR like:
+
+```text
+target/VoxelEarth.jar
+```
+
+Copy that into the server’s `plugins/` folder:
+
+```bash
+cp target/VoxelEarth.jar ~/paper-server/plugins/
+```
+
+Then (re)start your server:
+
 ```bash
 cd ~/paper-server
-java -Xms512M -Xmx1024M -jar paper.jar nogui
+java -Xms2G -Xmx4G -jar paper.jar nogui
 ```
 
-If there's any problems with the Minecraft plugin, the main file that should be edited is:
-   
-   [**VoxelChunkGenerator.java**](minecraft-plugin/src/main/java/com/example/VoxelChunkGenerator.jav): This is the main file that handles mapping the player's location to a latitude and longitude, then loading the voxelized GLB into the Minecraft world.
-   
-### Included Libraries
-This project includes modified versions of the following libraries:
+While developing:
 
-1. **ObjToSchematic by Lucas Dower** (deprecated, removed)
-   - **Original Repository**: [ObjToSchematic](https://github.com/LucasDower/ObjToSchematic)
-   - **Modifications**: Deprecated in favor of custom 2.5D Scan CPU voxelization. Originally enhanced voxelization pipeline to ingest GLTF files via THREE.js.
+* Run the server in one terminal
+* Rebuild + copy the JAR from another
+* Use `/reload` or a plugin manager only if you understand the risks; full restarts are safest for debugging complex pipelines
 
-2. **cuda_voxelizer by ForceFlow** (deprecated, removed)
-   - **Original Repository**: [cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) + [TriMesh2](https://github.com/Forceflow/TriMesh2)
-   - **Modifications**: Deprecated as the storage IO was too high. Should add back compiled Java link or binary in the future. Added support for color and GLTF format, optimized CUDA shaders, serves as the GPU-based voxelizer. Falls back to CPU if not present.
+---
 
-3. **google-earth-as-gltf by Omar Shehata** (for web-client)
-   - **Original Repository**: [google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)
-   - **Modifications**: Adapted for integration with voxelization pipeline via proxy, used for front-end visualization and navigation.
+## Included & Related Libraries
 
-4. **3dtiles-dl by Lukas Lao Beyer** (Java implementation)
-   - **Original Repository**: [3dtiles-dl](https://github.com/lukaslaobeyer/3dtiles-dl)
-   - **Modifications**: Converted to Java. Added support for custom location downloads and GLB conversion, used for on-demand highest-resolution tileset retrieval.
+VoxelEarth derives ideas and/or code from several open-source projects:
 
-All original library code is licensed under their respective licenses. See individual LICENSE files in each modified library directory for more details.
+1. **ObjToSchematic by Lucas Dower** *(historical, removed)*
 
-### Contributing
-Contributions to Voxel Earth are welcome! Please fork the repository and submit a pull request. Ensure that your code follows the existing style and passes all tests.
+   * Original: [https://github.com/LucasDower/ObjToSchematic](https://github.com/LucasDower/ObjToSchematic)
+   * Previously used for OBJ/GLTF imports; superseded by our custom voxelization path.
 
-### License
-Voxel Earth is licensed under the MIT License. See the LICENSE file for more details.
+2. **cuda_voxelizer by ForceFlow** *(historical, removed)*
 
-### Acknowledgements
-We use Google Photorealistic 3D Tiles under fair use and load data on-demand without downloading or caching outside of development. Note that if you use this plugin with any tileset you do not have the license to - you are expected to follow their TOS. Specifically, you should not alter the plugin to save tiles permanently, as it currently is set up as a temporary viewer.
+   * Original: [https://github.com/Forceflow/cuda_voxelizer](https://github.com/Forceflow/cuda_voxelizer) and [https://github.com/Forceflow/TriMesh2](https://github.com/Forceflow/TriMesh2)
+   * Used to experiment with GPU voxelization. Disk IO overhead made the end-to-end pipeline slower than a good CPU-only approach in this context.
 
-Special thanks to Lucas Dower, ForceFlow, Cesium, Google, and Omar Shehata for their incredible work and open-source contributions. Voxel Earth would not be possible without their efforts.
+3. **google-earth-as-gltf by Omar Shehata** *(web client)*
+
+   * Original: [https://github.com/OmarShehata/google-earth-as-gltf](https://github.com/OmarShehata/google-earth-as-gltf)
+   * Inspires and underpins the logic in our web client for fetching and normalizing tiles.
+
+4. **3dtiles-dl by Lukas Lao Beyer** *(reimplemented in Java)*
+
+   * Original: [https://github.com/lukaslaobeyer/3dtiles-dl](https://github.com/lukaslaobeyer/3dtiles-dl)
+   * Influenced our Java downloader (`java-3dtiles-downloader`) for on-demand tileset retrieval.
+
+5. **Cesium / loaders.gl / 3DTilesRendererJS**
+
+   * Core ideas and tooling around 3D Tiles traversal, decoding, and visualization.
+
+Each component keeps or adapts the original license where code is reused. Check the individual repositories for their LICENSE files.
+
+---
+
+## Acknowledgements & Data Usage
+
+VoxelEarth uses **Google Photorealistic 3D Tiles** and other 3D Tiles sources.
+
+* We treat the plugin as a **viewer / proxy**: tiles are fetched on demand, transformed into voxels, and streamed into memory for interactive exploration.
+* When working with any tileset (Google or otherwise), **you are responsible for following the terms of service and licensing** for that data.
+* In particular, do not modify the plugin to permanently archive or redistribute tiles when that violates the data provider’s rules.
+
+Special thanks to:
+
+* **Lucas Dower**, **ForceFlow**, **Omar Shehata**, **Cesium**, **Google**, **Lukas Lao Beyer**, and the broader open-source 3D Tiles community.
+* Everyone experimenting with voxelization, photogrammetry, and Minecraft — your tools and ideas are what made VoxelEarth possible.
+
+---
+
+## Contributing
+
+Contributions are very welcome!
+
+Because VoxelEarth is split into multiple components, you can choose the layer that best fits your interests:
+
+* **Minecraft plugin** – streaming logic, chunk generation, block palettes, FAWE integration
+* **Download stage** – improvements to `java-3dtiles-downloader` (rate limiting, smarter tiling, new providers)
+* **Draco decode** – performance and robustness improvements in `java-draco-decoder`
+* **Voxelizer** – algorithmic work in `java-cpu-voxelizer` (better filling, meshes, performance)
+* **Web client** – UX, rendering, and browser-side experiments in `web-client`
+
+Typical workflow:
+
+1. Fork the relevant repository (plugin or one of the CLIs).
+2. Develop and test your changes locally using the CLI tools and/or a test server.
+3. Open a pull request with:
+
+   * A clear description of what you changed and why
+   * Any performance regressions/benchmarks if applicable
+   * Notes on how it affects Minecraft integration, if at all
+
+Please follow the existing code style and ensure `mvn test` (where present) passes.
+
+---
+
+## License
+
+VoxelEarth and its companion CLIs are released under the **MIT License**, unless otherwise noted in sub-projects.
+See the `LICENSE` file in this repository for full terms.
+
+“Minecraft” is a trademark of Mojang AB.
+VoxelEarth is not affiliated with or endorsed by Mojang AB, Microsoft, or Google.
