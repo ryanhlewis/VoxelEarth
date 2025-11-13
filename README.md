@@ -1,10 +1,10 @@
-# VoxelEarth
+# Voxel Earth
 
 > Real places, in Minecraft.
 
  [![Join us on Discord](https://img.shields.io/discord/308323056592486420?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2")](https://discord.gg/8MK8J9EQGe)
 
-VoxelEarth is a full pipeline for turning photogrammetry and 3D Tiles into block-based worlds.  
+Voxel Earth is a full pipeline for turning photogrammetry and 3D Tiles into block-based worlds.  
 It streams Google Photorealistic 3D Tiles (and other sources) into Minecraft as voxelized chunks, so you can walk through real cities, mountains, and landmarks — block by block.
 
 - 🌍 Stream real-world 3D Tiles into Minecraft
@@ -25,9 +25,9 @@ It streams Google Photorealistic 3D Tiles (and other sources) into Minecraft as 
 
 ---
 
-## What is VoxelEarth and why should I use it?
+## What is Voxel Earth and why should I use it?
 
-VoxelEarth is a Minecraft + web ecosystem for exploring real-world geometry as voxels:
+Voxel Earth is a Minecraft + web ecosystem for exploring real-world geometry as voxels:
 
 - **3D Tiles to blocks**  
   Fetches photogrammetry tiles (e.g. Google Photorealistic 3D Tiles), normalizes them, and converts them into Minecraft block palettes.
@@ -47,7 +47,7 @@ VoxelEarth is a Minecraft + web ecosystem for exploring real-world geometry as v
 
 > **Note:** Links below are placeholders / targets; some may not exist yet.
 
-- **Minecraft plugin (core VoxelEarth JAR)**  
+- **Minecraft plugin (core Voxel Earth JAR)**  
   - GitHub Releases: https://github.com/ryanhlewis/VoxelEarth/releases (coming soon)  
   - Modrinth: https://modrinth.com/plugin/voxelearth (coming soon)  
   - SpigotMC: https://www.spigotmc.org/resources/voxelearth.00000/ (coming soon)  
@@ -74,7 +74,7 @@ VoxelEarth is a Minecraft + web ecosystem for exploring real-world geometry as v
 
 ### Version & FAWE Compatibility
 
-VoxelEarth has two placement paths:
+Voxel Earth has two placement paths:
 
 1. **BlockPlacer (no FAWE)** — a direct placement path that can work on **1.7–1.20.4** in code, using a single `BlockPlacer.java` binding.
 2. **FAWE-powered placement** — uses FAWE’s async/world editing API for higher throughput on modern servers.
@@ -83,7 +83,7 @@ Current status of the public plugin builds:
 
 - **Minecraft 1.20.4 (Paper/Spigot)**  
   - ✅ Actively tested and supported  
-  - ✅ FAWE **optional** – if FAWE is not installed, VoxelEarth falls back to its internal BlockPlacer path  
+  - ✅ FAWE **optional** – if FAWE is not installed, Voxel Earth falls back to its internal BlockPlacer path  
   - ✅ Works as a single plugin JAR, no GPU required
 
 - **Minecraft 1.20.x+ (e.g. 1.20.5+, 1.21, …)**  
@@ -94,14 +94,14 @@ Current status of the public plugin builds:
   - 🧪 The BlockPlacer path is designed to be compatible with 1.7–1.20.4, but **we are not currently shipping prebuilt jars below 1.20**  
   - Supporting older versions will require building a version-specific plugin from source / dedicated branches
 
-If you’re running **1.20.4**, you can run VoxelEarth with or without FAWE installed.  
+If you’re running **1.20.4**, you can run Voxel Earth with or without FAWE installed.  
 If you’re running **1.20+ but not 1.20.4**, plan to drop FAWE into your `plugins/` folder.
 
 ---
 
 ## Quick Start – Barebones Server Setup (1.20.4)
 
-### Linux (Paper + FAWE + VoxelEarth)
+### Linux (Paper + FAWE + Voxel Earth)
 
 ```bash
 # Create server folder
@@ -169,7 +169,7 @@ VoxelEarth’s plugin adds commands for geocoding, tile loading, and per-player 
   Admin variants that adjust settings and notify other players.
 
 /createcustomworld <worldname>
-  Creates a new world using the VoxelEarth chunk generator.
+  Creates a new world using the Voxel Earth chunk generator.
 
 /regenchunks <scaleX> <scaleY> <scaleZ> <offsetX> <offsetY> <offsetZ>
   Regenerate chunks with custom scaling and offsets for voxel imports.
@@ -196,14 +196,14 @@ The web client:
 
 * Fetches Google Photorealistic 3D Tiles in the browser
 * Normalizes/rotates them into a viewable frame
-* Can hand off data to the VoxelEarth voxelization pipeline
+* Can hand off data to the Voxel Earth voxelization pipeline
 * Is ideal for exploring regions, testing zoom/SSE parameters, and visually inspecting tilesets before you spin up a Minecraft server
 
 ---
 
 ## Architecture & Companion Repositories
 
-VoxelEarth is intentionally split into small, testable pieces. Each stage of the pipeline can be developed and validated in isolation.
+Voxel Earth is intentionally split into small, testable pieces. Each stage of the pipeline can be developed and validated in isolation.
 
 ### 1. 3D Tiles Download – `java-3dtiles-downloader`
 
@@ -247,7 +247,7 @@ java -jar target/draco-decoder-cli-1.0.0-all.jar \
   -f in.glb -o out -j 8 -v
 ```
 
-This is the reference implementation for the **Draco decompression stage**. The Minecraft plugin mirrors this logic internally, so if something decodes here, it should decode inside VoxelEarth as well.
+This is the reference implementation for the **Draco decompression stage**. The Minecraft plugin mirrors this logic internally, so if something decodes here, it should decode inside Voxel Earth as well.
 
 ---
 
@@ -367,7 +367,7 @@ While developing:
 
 ## Included & Related Libraries
 
-VoxelEarth derives ideas and/or code from several open-source projects:
+Voxel Earth derives ideas and/or code from several open-source projects:
 
 1. **ObjToSchematic by Lucas Dower** *(historical, removed)*
 
@@ -399,7 +399,7 @@ Each component keeps or adapts the original license where code is reused. Check 
 
 ## Acknowledgements & Data Usage
 
-VoxelEarth uses **Google Photorealistic 3D Tiles** and other 3D Tiles sources.
+Voxel Earth uses **Google Photorealistic 3D Tiles** and other 3D Tiles sources.
 
 * We treat the plugin as a **viewer / proxy**: tiles are fetched on demand, transformed into voxels, and streamed into memory for interactive exploration.
 * When working with any tileset (Google or otherwise), **you are responsible for following the terms of service and licensing** for that data.
@@ -408,7 +408,7 @@ VoxelEarth uses **Google Photorealistic 3D Tiles** and other 3D Tiles sources.
 Special thanks to:
 
 * **Lucas Dower**, **ForceFlow**, **Omar Shehata**, **Cesium**, **Google**, **Lukas Lao Beyer**, and the broader open-source 3D Tiles community.
-* Everyone experimenting with voxelization, photogrammetry, and Minecraft — your tools and ideas are what made VoxelEarth possible.
+* Everyone experimenting with voxelization, photogrammetry, and Minecraft — your tools and ideas are what made Voxel Earth possible.
 
 ---
 
@@ -416,7 +416,7 @@ Special thanks to:
 
 Contributions are very welcome!
 
-Because VoxelEarth is split into multiple components, you can choose the layer that best fits your interests:
+Because Voxel Earth is split into multiple components, you can choose the layer that best fits your interests:
 
 * **Minecraft plugin** – streaming logic, chunk generation, block palettes, FAWE integration
 * **Download stage** – improvements to `java-3dtiles-downloader` (rate limiting, smarter tiling, new providers)
@@ -440,8 +440,8 @@ Please follow the existing code style and ensure `mvn test` (where present) pass
 
 ## License
 
-VoxelEarth and its companion CLIs are released under the **MIT License**, unless otherwise noted in sub-projects.
+Voxel Earth and its companion CLIs are released under the **MIT License**, unless otherwise noted in sub-projects.
 See the `LICENSE` file in this repository for full terms.
 
 “Minecraft” is a trademark of Mojang AB.
-VoxelEarth is not affiliated with or endorsed by Mojang AB, Microsoft, or Google.
+Voxel Earth is not affiliated with or endorsed by Mojang AB, Microsoft, or Google.
