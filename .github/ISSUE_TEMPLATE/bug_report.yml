@@ -1,0 +1,91 @@
+name: "Bug report"
+description: Create a report to help us fix your issue
+assignees: ryanhlewis
+labels: 'bug'
+title: "[BUG]: "
+body:
+
+- type: markdown
+  attributes:
+    value: Thanks for filling this out with so we can fix all errors with the code! 
+
+- type: textarea
+  id: description
+  attributes:
+    label: Describe the bug
+    placeholder: It is a ... when i expect ... because of ...
+    description: |
+      Add a clear and concise description of what you think the bug is.
+  validations:
+    required: true
+
+- type: textarea
+  id: reproduce
+  attributes:
+    label: Steps to reproduce the behaviour
+    placeholder: "e.g: 1. Go to ... 2. Write ..."
+    description: |
+      List the steps required to reproduce the issue.
+  validations:
+    required: true
+
+- type: dropdown
+  id: type
+  attributes:
+    label: Bug type
+    description: What type of bug is it?
+    options:
+        - Crash or exception
+        - Incorrect scan results
+        - Performance issue
+        - Installation or import failure
+        - Wrong output behaviour
+        - Other
+  validations:
+    required: true
+
+- type: textarea
+  id: system
+  attributes:
+    label: System
+    description: |
+      Provide environment details.
+    placeholder: |
+      OS: ...
+      Minecraft version: ...
+      VoxelEart version: v....
+      Install: source / modrinth
+  validations:
+    required: true
+
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs
+    placeholder: ...
+    description: |
+      If you got an error code please paste one
+
+- type: textarea
+  id: additional
+  attributes:
+    label: Additional context
+    description: |
+      Add any other relevant context for the problem.
+
+- type: input
+  id: contact
+  attributes:
+    label: Contact details (Optional)
+    placeholder: "e.g: email@example.com"
+    description: How can we get in touch with you if we need more info?
+
+- type: checkboxes
+  id: terms
+  attributes:
+    label: Report Expectations
+    description: Confirm that your report follows respectful and constructive communication guidelines.
+    options:
+      - label: I confirm that my report is respectful and constructive.
+        required: true
+
