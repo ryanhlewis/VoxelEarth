@@ -1,0 +1,96 @@
+name: Feature Request
+description: Submit a request for a new feature for VoxelEarth.
+assignees: ryanhlewis
+labels: enhancement
+title: "[FEATURE-REQUEST]: "
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filling out this feature-request template so we can get some new features! 
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Describe the exact feature you want
+      description: Explain the feature and how it would make VoxelEarth better
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_impact
+    attributes:
+      label: Describe the impact that this has on users
+      description: How does this feature affect users?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: business_impact
+    attributes:
+      label: Select the technical impact
+      description: Which of these does the request help with?
+      multiple: true
+      options:
+        - Optimize needed computing power
+        - More accuracy
+        - Speed up scanning
+        - Enhance integrations with other tools
+        - Improve stability / avoid crashes
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: cost_of_not_doing
+    attributes:
+      label: Cost of not doing this
+      options:
+        - label: Less accuracy
+        - label: Slower scans
+        - label: Manual effort required
+        - label: Fewer people will be able to use
+        - label: Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: How urgent is this request?
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution_ideas
+    attributes:
+      label: Describe any implementation ideas
+      description: If you have thoughts on how to build this, add them here.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other relevant info for the feature.
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact details (optional)
+      description: Optional - helps us if we need follow-up questions
+      placeholder: email@example.com
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Request Expectations
+      description: Confirm that your request follows respectful and constructive communication guidelines.
+      options:
+        - label: I confirm that my request is respectful and constructive.
+          required: true
