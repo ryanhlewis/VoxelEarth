@@ -167,4 +167,52 @@ public class CoordinateParsingTest {
         assertEquals(0.0, result[0], 0.0001);
         assertEquals(-180.0, result[1], 0.0001);
     }
+
+    @Test
+    public void testShortDecimalNoSpaces() throws Exception {
+        double[] result = invokeParseCoordinates("40.71,-74.00");
+        assertNotNull("Should parse XX.XX,XX.XX format", result);
+        assertEquals(40.71, result[0], 0.0001);
+        assertEquals(-74.00, result[1], 0.0001);
+    }
+
+    @Test
+    public void testVeryShortDecimalNoSpaces() throws Exception {
+        double[] result = invokeParseCoordinates("1.5,2.5");
+        assertNotNull("Should parse X.X,X.X format", result);
+        assertEquals(1.5, result[0], 0.0001);
+        assertEquals(2.5, result[1], 0.0001);
+    }
+
+    @Test
+    public void testExtraSpacesAroundComma() throws Exception {
+        double[] result = invokeParseCoordinates("40  ,  -74");
+        assertNotNull("Should parse with spaces before and after comma", result);
+        assertEquals(40.0, result[0], 0.0001);
+        assertEquals(-74.0, result[1], 0.0001);
+    }
+
+    @Test
+    public void testRealWorldAddress1() throws Exception {
+        double[] result = invokeParseCoordinates("New York, NY");
+        assertNull("Should NOT parse city/state as coordinates", result);
+    }
+
+    @Test
+    public void testRealWorldAddress2() throws Exception {
+        double[] result = invokeParseCoordinates("123 Main Street, Springfield");
+        assertNull("Should NOT parse street addresses as coordinates", result);
+    }
+
+    @Test
+    public void testRealWorldAddress3() throws Exception {
+        double[] result = invokeParseCoordinates("Eiffel Tower, Paris");
+        assertNull("Should NOT parse landmarks as coordinates", result);
+    }
+
+    @Test
+    public void testNumbersButNotCoordinates() throws Exception {
+        double[] result = invokeParseCoordinates("100, Park");
+        assertNull("Should NOT parse non-coordinate numbers", result);
+    }
 }
