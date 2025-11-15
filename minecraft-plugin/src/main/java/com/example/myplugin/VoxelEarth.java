@@ -797,7 +797,62 @@ public class VoxelEarth extends JavaPlugin {
         return false;
     }
 
+    /**
+     * Attempts to parse coordinates directly from the location string.
+     * Supports formats like "40.7128, -74.0060" or "40.7128 -74.0060"
+     * 
+     * @param location The location string to parse
+     * @return A double array [lat, lng] if successfully parsed, null otherwise
+     */
+    private double[] parseCoordinates(String location) {
+        if (location == null || location.trim().isEmpty()) {
+            return null;
+        }
+        
+        String trimmed = location.trim();
+        
+        // Try to match coordinate patterns: "lat, lng" or "lat lng"
+        // Coordinates can be decimal numbers with optional minus sign
+        String[] parts = null;
+        
+        // Try comma-separated first
+        if (trimmed.contains(",")) {
+            parts = trimmed.split(",");
+        }
+        // Try space-separated (one or more spaces)
+        else if (trimmed.contains(" ")) {
+            parts = trimmed.split("\\s+");
+        }
+        
+        // If we have exactly 2 parts, try to parse them as doubles
+        if (parts != null && parts.length == 2) {
+            try {
+                double lat = Double.parseDouble(parts[0].trim());
+                double lng = Double.parseDouble(parts[1].trim());
+                
+                // Validate coordinate ranges
+                // Latitude must be between -90 and 90
+                // Longitude must be between -180 and 180
+                if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                    return new double[]{lat, lng};
+                }
+            } catch (NumberFormatException e) {
+                // Not valid coordinates, fall through to return null
+            }
+        }
+        
+        return null;
+    }
+
     private double[] geocodeLocation(String location) throws IOException {
+        // First, try to parse as direct coordinates
+        double[] coordinates = parseCoordinates(location);
+        if (coordinates != null) {
+            getLogger().info("Parsed direct coordinates: " + coordinates[0] + ", " + coordinates[1]);
+            return coordinates;
+        }
+        
+        // If not coordinates, use the geocoding API
         String apiUrl = "https://maps.googleapis.com/maps/api/geocode/json";
         String apiKey = getApiKeyManager().getCurrentApiKey();
 
