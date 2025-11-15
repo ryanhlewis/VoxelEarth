@@ -8,7 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for filling this feature-request template so we can get some new features! 
+        Thanks for filling out this feature-request template so we can get some new features! 
 
   - type: textarea
     id: feature-description
