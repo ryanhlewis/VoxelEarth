@@ -3,8 +3,6 @@ package com.example.voxelearth;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-import java.lang.reflect.Method;
-
 /**
  * Unit tests for coordinate parsing functionality.
  * Tests the parseCoordinates method to ensure it correctly identifies
@@ -13,13 +11,13 @@ import java.lang.reflect.Method;
 public class CoordinateParsingTest {
 
     /**
-     * Helper method to invoke the private parseCoordinates method via reflection
+     * Helper method to invoke the parseCoordinates method.
+     * 
+     * NOTE: This expects VoxelEarth.parseCoordinates(String) to be a
+     * static method.
      */
     private double[] invokeParseCoordinates(String location) throws Exception {
-        VoxelEarth plugin = new VoxelEarth();
-        Method method = VoxelEarth.class.getDeclaredMethod("parseCoordinates", String.class);
-        method.setAccessible(true);
-        return (double[]) method.invoke(plugin, location);
+        return VoxelEarth.parseCoordinates(location);
     }
 
     @Test

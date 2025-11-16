@@ -436,6 +436,15 @@ Please follow the existing code style and ensure `mvn test` (where present) pass
 
 ---
 
+## Docker setup
+
+To make life easier, Docker can create a test server easily, which you can access and switch out the plugins folder of. On Linux:
+```
+docker build -t voxelearth .
+docker run -it -p 25565:25565 -v $(pwd)/server:/opt/voxelearth/server voxelearth
+```
+Simply keep rebuilding the plugin and dropping it in local ./server/ directory linked to the container and reloading the server.
+
 ## License
 
 Voxel Earth and its companion CLIs are released under the **MIT License**, unless otherwise noted in sub-projects.

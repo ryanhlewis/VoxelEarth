@@ -680,10 +680,9 @@ public class VoxelEarth extends JavaPlugin {
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
                     gen.notifyProgress(p.getUniqueId(), 0, "Starting visit…");
-                    double[] latLng = geocodeLocation(location);
+                    double[] latLng = geocodeLocation(location, realSender);
                     if (latLng == null) {
-                        realSender.sendMessage("Failed to find location: " + location);
-                        warnApiKeyExpired(realSender);
+                        // geocodeLocation already told the player what went wrong
                         gen.notifyProgress(p.getUniqueId(), -1, "Geocoding failed");
                         getMovementListener().cancelVisit(p.getUniqueId());
                         return;
@@ -691,6 +690,7 @@ public class VoxelEarth extends JavaPlugin {
                         realSender.sendMessage("Found location: " + latLng[0] + ", " + latLng[1]);
                         gen.notifyProgress(p.getUniqueId(), 10, "Geocoded " + location);
                     }
+
                     getMovementListener().setReferenceLatLng(p.getUniqueId(), latLng[0], latLng[1]);
 
                     int[] islandBase = gen.allocateNewIslandBase();
@@ -748,11 +748,9 @@ public class VoxelEarth extends JavaPlugin {
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
                     gen.notifyProgress(target.getUniqueId(), 0, "Starting visit…");
-                    double[] latLng = geocodeLocation(location);
+                    double[] latLng = geocodeLocation(location, sender, target);
                     if (latLng == null) {
-                        sender.sendMessage("Failed to find location: " + location);
-                        warnApiKeyExpired(sender);
-                        warnApiKeyExpired(target);
+                        // geocodeLocation already told sender/target what went wrong
                         gen.notifyProgress(target.getUniqueId(), -1, "Geocoding failed");
                         getMovementListener().cancelVisit(target.getUniqueId());
                         return;
@@ -761,6 +759,7 @@ public class VoxelEarth extends JavaPlugin {
                         target.sendMessage("Navigating to: " + location + " (" + latLng[0] + ", " + latLng[1] + ")");
                         gen.notifyProgress(target.getUniqueId(), 10, "Geocoded " + location);
                     }
+
 
                     int[] islandBase = gen.allocateNewIslandBase();
                     gen.setPlayerAnchor(target.getUniqueId(), latLng[0], latLng[1], islandBase[0], islandBase[1]);
@@ -804,54 +803,47 @@ public class VoxelEarth extends JavaPlugin {
      * @param location The location string to parse
      * @return A double array [lat, lng] if successfully parsed, null otherwise
      */
-    private double[] parseCoordinates(String location) {
+    static double[] parseCoordinates(String location) {
         if (location == null || location.trim().isEmpty()) {
             return null;
         }
-        
+
         String trimmed = location.trim();
-        
-        // Try to match coordinate patterns: "lat, lng" or "lat lng"
-        // Coordinates can be decimal numbers with optional minus sign
         String[] parts = null;
-        
-        // Try comma-separated first
+
         if (trimmed.contains(",")) {
+            // comma-separated
             parts = trimmed.split(",");
-        }
-        // Try space-separated (one or more spaces)
-        else if (trimmed.contains(" ")) {
+        } else if (trimmed.contains(" ")) {
+            // one or more spaces
             parts = trimmed.split("\\s+");
         }
-        
-        // If we have exactly 2 parts, try to parse them as doubles
+
         if (parts != null && parts.length == 2) {
             try {
                 double lat = Double.parseDouble(parts[0].trim());
                 double lng = Double.parseDouble(parts[1].trim());
-                
-                // Validate coordinate ranges
-                // Latitude must be between -90 and 90
-                // Longitude must be between -180 and 180
+
                 if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-                    return new double[]{lat, lng};
+                    return new double[]{ lat, lng };
                 }
             } catch (NumberFormatException e) {
-                // Not valid coordinates, fall through to return null
+                // fall through to null
             }
         }
-        
+
         return null;
     }
 
-    private double[] geocodeLocation(String location) throws IOException {
+
+    private double[] geocodeLocation(String location, CommandSender... recipients) throws IOException {
         // First, try to parse as direct coordinates
         double[] coordinates = parseCoordinates(location);
         if (coordinates != null) {
             getLogger().info("Parsed direct coordinates: " + coordinates[0] + ", " + coordinates[1]);
             return coordinates;
         }
-        
+
         // If not coordinates, use the geocoding API
         String apiUrl = "https://maps.googleapis.com/maps/api/geocode/json";
         String apiKey = getApiKeyManager().getCurrentApiKey();
@@ -870,9 +862,29 @@ public class VoxelEarth extends JavaPlugin {
         reader.close();
 
         JSONObject jsonResponse = new JSONObject(response.toString());
-        if (!jsonResponse.getString("status").equals("OK")) {
-            getLogger().severe("Geocoding API error: " + jsonResponse.getString("status"));
+        String status = jsonResponse.optString("status", "UNKNOWN");
+
+        if (!"OK".equals(status)) {
+            getLogger().severe("Geocoding API error: " + status);
             getLogger().severe("Geocoding API response: " + jsonResponse);
+
+            // Send appropriate feedback to any recipients
+            for (CommandSender r : recipients) {
+                if (r == null) continue;
+
+                if ("ZERO_RESULTS".equals(status)) {
+                    r.sendMessage(ChatColor.RED + "Failed to find location: " + location);
+                    r.sendMessage(ChatColor.YELLOW + "Try a more specific address, or paste latitude,longitude coordinates (e.g. 40.7128,-74.0060).");
+                } else if ("OVER_DAILY_LIMIT".equals(status)
+                        || "OVER_QUERY_LIMIT".equals(status)
+                        || "REQUEST_DENIED".equals(status)) {
+                    // Likely API key / billing / quota problem
+                    warnApiKeyExpired(r);
+                } else {
+                    r.sendMessage(ChatColor.RED + "Geocoding failed (" + status + "). Check the server console for details.");
+                }
+            }
+
             return null;
         }
 
@@ -887,6 +899,7 @@ public class VoxelEarth extends JavaPlugin {
 
         return new double[]{lat, lng};
     }
+
 
     private void warnApiKeyExpired(CommandSender recipient) {
         if (recipient == null) return;
