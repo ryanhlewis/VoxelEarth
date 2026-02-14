@@ -478,3 +478,4 @@ draco/
 *OBJ.Linux64*/
 *.class
 /minecraft-plugin/target
+/server

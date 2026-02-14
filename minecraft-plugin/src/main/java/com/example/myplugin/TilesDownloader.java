@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 final class TilesDownloader implements AutoCloseable {
 
     private static final URI ROOT_TILES_ENDPOINT = URI.create("https://tile.googleapis.com/v1/3dtiles/root.json");
+    private static final URI FALLBACK_TILES_ENDPOINT = URI.create("https://edu.voxelearth.org/v1/3dtiles/root.json");
     private static final long SESSION_TTL_MS = TimeUnit.HOURS.toMillis(3);
     private static final Object CACHE_LOCK = new Object();
     private static volatile String cachedSession;
@@ -172,7 +173,12 @@ final class TilesDownloader implements AutoCloseable {
             rememberSessionToken(warmSession);
             initialTileset = ensureKeySession(URI.create(warmRoot), apiKey, warmSession);
         } else {
-            initialTileset = withParam(ROOT_TILES_ENDPOINT, "key", apiKey, null);
+             if (apiKey != null && !apiKey.isBlank()) {
+                initialTileset = withParam(ROOT_TILES_ENDPOINT, "key", apiKey, null);
+            } else {
+                // FALLBACK: use VoxelEarth community server, NO key param
+                initialTileset = FALLBACK_TILES_ENDPOINT;
+            }
         }
 
         log("[TilesDownloader] Initial tileset: %s", initialTileset);
@@ -510,7 +516,10 @@ final class TilesDownloader implements AutoCloseable {
 
     private static URI ensureKeySession(URI u, String apiKey, String session){
         Map<String,String> q = parseQuery(u.getRawQuery());
-        if (!q.containsKey("key")) q.put("key", apiKey);
+        // Only inject key if we actually HAVE one
+        if (apiKey != null && !apiKey.isBlank() && !q.containsKey("key")) {
+            q.put("key", apiKey);
+        }
         if (session != null && !session.isBlank() && !q.containsKey("session")) q.put("session", session);
         return withParams(u, q);
     }

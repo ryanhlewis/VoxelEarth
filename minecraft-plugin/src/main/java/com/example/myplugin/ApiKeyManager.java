@@ -47,13 +47,25 @@ public class ApiKeyManager {
 
     public synchronized void setCustomApiKey(String apiKey) throws IOException {
         String trimmed = apiKey == null ? "" : apiKey.trim();
-        if (trimmed.isEmpty()) {
-            throw new IllegalArgumentException("API key cannot be empty.");
-        }
+        // Allow empty string to mean "clear the key"
+        
         File dataFolder = plugin.getDataFolder();
         if (!dataFolder.exists() && !dataFolder.mkdirs()) {
             throw new IOException("Could not create plugin data directory: " + dataFolder);
         }
+        
+        if (trimmed.isEmpty()) {
+            // If empty, delete the file if it exists, so next load remains empty
+            try {
+                Files.deleteIfExists(keyFile);
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to delete custom API key file", e);
+            }
+            customApiKey = "";
+            plugin.getLogger().info("[ApiKeyManager] Cleared custom API key.");
+            return;
+        }
+
         Files.writeString(
                 keyFile,
                 trimmed,
@@ -71,7 +83,10 @@ public class ApiKeyManager {
         if (cached != null && !cached.isBlank()) {
             return cached;
         }
-        return defaultApiKey;
+        // If no custom key, return NULL so logic knows to use fallback.
+        // We ignore defaultApiKey now for logic purposes, or we can leave it if truly needed.
+        // The implementation plan says: "return null when no key is set".
+        return null; 
     }
 
     public boolean hasCustomKey() {

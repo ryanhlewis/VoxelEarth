@@ -15,6 +15,7 @@ import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.block.Block;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -424,21 +425,27 @@ public class VoxelEarth extends JavaPlugin {
             }
         } else if (command.getName().equalsIgnoreCase("voxelapikey")) {
             if (args.length != 1) {
-                realSender.sendMessage("Usage: /voxelapikey <google-api-key>");
+                realSender.sendMessage("Usage: /voxelapikey <google-api-key|clear>");
                 return false;
             }
-            String newKey = args[0].trim();
-            if (newKey.isEmpty()) {
-                realSender.sendMessage(ChatColor.RED + "API key cannot be empty.");
-                return true;
+            String input = args[0].trim();
+            String newKey = input;
+            
+            if (input.equalsIgnoreCase("clear") || input.equalsIgnoreCase("none") || input.equalsIgnoreCase("empty")) {
+                newKey = "";
             }
+
             try {
                 getApiKeyManager().setCustomApiKey(newKey);
                 if (voxelChunkGenerator != null) {
                     voxelChunkGenerator.refreshTileDownloaderApiKey();
                 }
-                realSender.sendMessage(ChatColor.GREEN + "Stored custom Google API key (" + newKey.length() + " chars).");
-                realSender.sendMessage(ChatColor.YELLOW + "Ensure Geocoding + Maps Tiles APIs are enabled for this key.");
+                if (newKey.isEmpty()) {
+                    realSender.sendMessage(ChatColor.GREEN + "Custom API key cleared. Using VoxelEarth community server.");
+                } else {
+                    realSender.sendMessage(ChatColor.GREEN + "Stored custom Google API key (" + newKey.length() + " chars).");
+                    realSender.sendMessage(ChatColor.YELLOW + "Ensure Geocoding + Maps Tiles APIs are enabled for this key.");
+                }
             } catch (IllegalArgumentException e) {
                 realSender.sendMessage(ChatColor.RED + e.getMessage());
             } catch (IOException e) {
@@ -845,9 +852,38 @@ public class VoxelEarth extends JavaPlugin {
         }
 
         // If not coordinates, use the geocoding API
-        String apiUrl = "https://maps.googleapis.com/maps/api/geocode/json";
         String apiKey = getApiKeyManager().getCurrentApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            // FALLBACK: Try Open-Meteo first, then OSM Nominatim
+            try {
+                double[] openMeteo = geocodeOpenMeteo(location);
+                if (openMeteo != null) {
+                    return openMeteo;
+                }
+            } catch (Exception e) {
+                getLogger().warning("Open-Meteo geocoding failed: " + e.getMessage());
+            }
 
+            try {
+                double[] osm = geocodeOsmNominatim(location);
+                if (osm != null) {
+                    return osm;
+                }
+            } catch (Exception e) {
+                getLogger().warning("OSM Nominatim geocoding failed: " + e.getMessage());
+            }
+
+            for (CommandSender r : recipients) {
+                if (r != null) {
+                    r.sendMessage(ChatColor.RED + "Geocoding failed.");
+                    r.sendMessage(ChatColor.YELLOW + "Could not resolve location using fallback services.");
+                    r.sendMessage(ChatColor.YELLOW + "Please use coordinates (lat,lng) or set a Google API key.");
+                }
+            }
+            return null;
+        }
+
+        String apiUrl = "https://maps.googleapis.com/maps/api/geocode/json";
         String requestUrl = apiUrl + "?address=" + location.replace(" ", "+") + "&key=" + apiKey;
         URL url = URI.create(requestUrl).toURL();
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -948,6 +984,80 @@ public class VoxelEarth extends JavaPlugin {
                 generator.notifyProgress(player.getUniqueId(), 100, "Arrived");
             });
         });
+    }
+
+    private double[] geocodeOpenMeteo(String location) throws IOException {
+        String apiUrl = "https://geocoding-api.open-meteo.com/v1/search";
+        String requestUrl = apiUrl + "?name=" + location.replace(" ", "+") + "&count=1&language=en&format=json";
+        
+        URL url = URI.create(requestUrl).toURL();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+
+        if (connection.getResponseCode() != 200) {
+            return null;
+        }
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            
+            JSONObject json = new JSONObject(response.toString());
+            if (json.has("results")) {
+                org.json.JSONArray results = json.getJSONArray("results");
+                if (results.length() > 0) {
+                    JSONObject result = results.getJSONObject(0);
+                    double lat = result.getDouble("latitude");
+                    double lng = result.getDouble("longitude");
+                    return new double[]{lat, lng};
+                }
+            }
+        } catch (Exception e) {
+             getLogger().warning("Open-Meteo parse error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private double[] geocodeOsmNominatim(String location) throws IOException {
+        String apiUrl = "https://nominatim.openstreetmap.org/search";
+        String requestUrl = apiUrl + "?format=json&limit=1&q=" + location.replace(" ", "+");
+        
+        URL url = URI.create(requestUrl).toURL();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+        connection.setRequestProperty("User-Agent", "VoxelEarth-MinecraftPlugin/1.0"); // Required by OSM
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+
+        if (connection.getResponseCode() != 200) {
+             return null;
+        }
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            
+             if (response.length() > 0 && response.charAt(0) == '[') {
+                org.json.JSONArray array = new org.json.JSONArray(response.toString());
+                if (array.length() > 0) {
+                    JSONObject result = array.getJSONObject(0);
+                    double lat = result.getDouble("lat");
+                    double lng = result.getDouble("lon");
+                    return new double[]{lat, lng};
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("OSM Nominatim parse error: " + e.getMessage());
+        }
+        return null;
     }
 
     private void reattachGeneratorToWorld(String worldName) {
